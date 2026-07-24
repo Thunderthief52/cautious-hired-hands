@@ -1,7 +1,7 @@
 meta = {
     name = "Cautious Hired Hands",
-    version = "0.1.0",
-    description = [[Adds a safety layer to the normal Hired Hand AI. Hired Hands avoid dangerous drops, lava, traps, explosives, shoplifting, and friendly fire while keeping the game's normal navigation.]],
+    version = "0.2.0",
+    description = [[Adds a safety layer to the normal Hired Hand AI. Hired Hands avoid dangerous drops, lava, traps, explosives, shoplifting, friendly fire, and dangerous collateral throws while keeping the game's normal navigation.]],
     author = "Adam & Eli"
 }
 
@@ -31,6 +31,18 @@ register_option_bool(
     true
 )
 register_option_bool(
+    "prevent_collateral_damage",
+    "Prevent collateral damage",
+    "Do not throw living creatures or hit loose enemies and objects when they could be knocked into a player.",
+    true
+)
+register_option_bool(
+    "prefer_stomps",
+    "Prefer safe stomps",
+    "Jump on nearby stompable enemies instead of whipping or throwing when the landing approach is safe.",
+    true
+)
+register_option_bool(
     "protect_shops",
     "Protect shops and friendly NPCs",
     "Do not steal shop items or attack near friendly NPCs and altars.",
@@ -43,9 +55,21 @@ register_option_bool(
     true
 )
 register_option_bool(
+    "protect_houyi_bow",
+    "Leave Hou Yi's Bow alone",
+    "Never pick up the special bow, so a Hired Hand cannot take it away from the player or quest path.",
+    true
+)
+register_option_bool(
     "dodge_projectiles",
     "Dodge incoming projectiles",
     "Duck under high shots and jump over low shots when there is time and room.",
+    true
+)
+register_option_bool(
+    "faster_reactions",
+    "Faster reactions",
+    "End idle pauses early and look farther ahead for incoming projectiles and nearby stomp opportunities.",
     true
 )
 register_option_int(
@@ -214,6 +238,8 @@ end
 local REFUSED_PICKUP_SET = to_set(REFUSED_PICKUPS)
 local RANGED_WEAPON_SET = to_set(RANGED_WEAPONS)
 local NEVER_USE_WEAPON_SET = to_set(NEVER_USE_WEAPONS)
+local FRIENDLY_NPC_SET = to_set(FRIENDLY_NPCS)
+local HOUYI_BOW_TYPE = ENT_TYPE.ITEM_HOUYIBOW
 
 local function debug_decision(hired_hand, reason)
     if not options.debug_log then
@@ -407,7 +433,9 @@ local function apply_bomb_escape(hired_hand, buttons)
 end
 
 local function projectile_response(hired_hand, x, y)
-    for _, uid in ipairs(entities_near(PROJECTILES, x, y, hired_hand.layer, 5.5)) do
+    local scan_radius = options.faster_reactions and 7.5 or 5.5
+    local reaction_frames = options.faster_reactions and 50 or 32
+    for _, uid in ipairs(entities_near(PROJECTILES, x, y, hired_hand.layer, scan_radius)) do
         local projectile = get_entity(uid)
         if projectile ~= nil and projectile.uid ~= hired_hand.holding_uid then
             local px, py = get_world_position(projectile)
@@ -417,8 +445,9 @@ local function projectile_response(hired_hand, x, y)
 
             if math.abs(horizontal_speed) > 0.04 and dx * horizontal_speed > 0 then
                 local frames_until_crossing = math.abs(dx / horizontal_speed)
-                local vertical_difference = py - y
-                if frames_until_crossing <= 32 and math.abs(vertical_difference) <= 0.62 then
+                local predicted_y = py + velocity.y * frames_until_crossing
+                local vertical_difference = predicted_y - y
+                if frames_until_crossing <= reaction_frames and math.abs(vertical_difference) <= 0.75 then
                     if vertical_difference > 0.08 then
                         return "duck"
                     end
@@ -458,30 +487,56 @@ local function apply_projectile_dodge(hired_hand, buttons)
     return buttons, false
 end
 
-local function protected_character_in_line(hired_hand, maximum_range)
+local function protected_characters(hired_hand)
+    local result = {}
+    local seen = {[hired_hand.uid] = true}
+
+    for _, player in ipairs(players) do
+        if not seen[player.uid] then
+            seen[player.uid] = true
+            result[#result + 1] = player
+        end
+    end
+    for _, uid in ipairs(get_entities_by_type(ENT_TYPE.CHAR_HIREDHAND)) do
+        if not seen[uid] then
+            local character = get_entity(uid)
+            if character ~= nil then
+                seen[uid] = true
+                result[#result + 1] = character
+            end
+        end
+    end
+    return result
+end
+
+local function protected_character_in_line(hired_hand, maximum_range, vertical_clearance)
     local hx, hy = get_world_position(hired_hand)
     local facing_left = test_flag(hired_hand.flags, ENT_FLAG.FACING_LEFT)
     local facing_direction = facing_left and -1 or 1
 
-    local protected_uids = {}
-    for _, player in ipairs(players) do
-        protected_uids[#protected_uids + 1] = player.uid
+    for _, character in ipairs(protected_characters(hired_hand)) do
+        if same_layer(hired_hand, character) then
+            local cx, cy = get_world_position(character)
+            local forward_distance = (cx - hx) * facing_direction
+            if forward_distance > 0
+                and forward_distance <= maximum_range
+                and math.abs(cy - hy) <= vertical_clearance then
+                return true
+            end
+        end
     end
-    for _, uid in ipairs(get_entities_by_type(ENT_TYPE.CHAR_HIREDHAND)) do
-        protected_uids[#protected_uids + 1] = uid
-    end
+    return false
+end
 
-    for _, uid in ipairs(protected_uids) do
-        if uid ~= hired_hand.uid then
-            local character = get_entity(uid)
-            if character ~= nil and same_layer(hired_hand, character) then
-                local cx, cy = get_world_position(character)
-                local forward_distance = (cx - hx) * facing_direction
-                if forward_distance > 0
-                    and forward_distance <= maximum_range
-                    and math.abs(cy - hy) <= 0.82 then
-                    return true
-                end
+local function protected_character_near(hired_hand, x, y, radius)
+    local radius_squared = radius * radius
+    for _, character in ipairs(protected_characters(hired_hand)) do
+        if same_layer(hired_hand, character) then
+            local cx, cy = get_world_position(character)
+            local dx = cx - x
+            local dy = cy - y
+            if dx * dx + dy * dy <= radius_squared then
+                return true
             end
         end
     end
@@ -495,21 +550,85 @@ local function held_item(hired_hand)
     return get_entity(hired_hand.holding_uid)
 end
 
+local function entity_matches_mask(entity, mask)
+    return entity ~= nil
+        and entity.type ~= nil
+        and entity.type.search_flags ~= nil
+        and test_mask(entity.type.search_flags, mask)
+end
+
+local function held_creature_is_dangerous(hired_hand, held)
+    if held == nil or not options.prevent_collateral_damage then
+        return false
+    end
+    if not entity_matches_mask(held, MASK.MONSTER + MASK.MOUNT) then
+        return false
+    end
+
+    local hx, hy = get_world_position(hired_hand)
+    return protected_character_near(hired_hand, hx, hy, 8.0)
+end
+
+local function knockable_target_near_player(hired_hand, maximum_range)
+    if not options.prevent_collateral_damage then
+        return false
+    end
+
+    local hx, hy = get_world_position(hired_hand)
+    local facing_left = test_flag(hired_hand.flags, ENT_FLAG.FACING_LEFT)
+    local facing_direction = facing_left and -1 or 1
+    local masks = MASK.MONSTER + MASK.MOUNT + MASK.ITEM
+    local scan_x = hx + facing_direction * maximum_range * 0.5
+    local scan_radius = maximum_range * 0.5 + 0.8
+
+    for _, uid in ipairs(get_entities_at(0, masks, scan_x, hy, hired_hand.layer, scan_radius)) do
+        if uid ~= hired_hand.uid and uid ~= hired_hand.holding_uid then
+            local target = get_entity(uid)
+            if target ~= nil then
+                local tx, ty = get_world_position(target)
+                local forward_distance = (tx - hx) * facing_direction
+                local is_knockable = entity_matches_mask(target, MASK.MONSTER + MASK.MOUNT)
+                    or test_flag(target.flags, ENT_FLAG.THROWABLE_OR_KNOCKBACKABLE)
+                if is_knockable
+                    and forward_distance > 0
+                    and forward_distance <= maximum_range
+                    and math.abs(ty - hy) <= 1.75
+                    and protected_character_near(hired_hand, tx, ty, 2.75) then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 local function attack_is_unsafe(hired_hand)
     local held = held_item(hired_hand)
     if held ~= nil and NEVER_USE_WEAPON_SET[held.type.id] then
         return true, "refusing to use an indiscriminate weapon"
     end
 
-    local range = 2.0
-    if held ~= nil and RANGED_WEAPON_SET[held.type.id] then
-        range = 10.0
-    elseif held ~= nil then
-        range = 5.0
+    if held_creature_is_dangerous(hired_hand, held) then
+        return true, "not throwing a creature anywhere near a protected character"
     end
 
-    if options.prevent_friendly_fire and protected_character_in_line(hired_hand, range) then
+    local range = 3.0
+    local vertical_clearance = 1.15
+    if held ~= nil and RANGED_WEAPON_SET[held.type.id] then
+        range = 11.0
+        vertical_clearance = 1.35
+    elseif held ~= nil then
+        range = 9.0
+        vertical_clearance = 2.0
+    end
+
+    if options.prevent_friendly_fire
+        and protected_character_in_line(hired_hand, range, vertical_clearance) then
         return true, "friendly character in attack line"
+    end
+
+    if knockable_target_near_player(hired_hand, range) then
+        return true, "an enemy or loose object could be knocked into a protected character"
     end
 
     local x, y = get_world_position(hired_hand)
@@ -521,6 +640,67 @@ local function attack_is_unsafe(hired_hand)
     end
 
     return false, nil
+end
+
+local function nearest_stomp_target(hired_hand)
+    if not options.prefer_stomps then
+        return nil
+    end
+
+    local hx, hy = get_world_position(hired_hand)
+    local scan_radius = options.faster_reactions and 2.8 or 2.2
+    local best = nil
+    local best_distance_squared = math.huge
+    for _, uid in ipairs(get_entities_at(0, MASK.MONSTER, hx, hy, hired_hand.layer, scan_radius)) do
+        local target = get_entity(uid)
+        if target ~= nil
+            and not FRIENDLY_NPC_SET[target.type.id]
+            and not test_flag(target.flags, ENT_FLAG.DEAD)
+            and test_flag(target.flags, ENT_FLAG.CAN_BE_STOMPED) then
+            local tx, ty = get_world_position(target)
+            local dx = tx - hx
+            local dy = ty - hy
+            local distance_squared = dx * dx + dy * dy
+            if dy >= -2.2 and dy <= 0.45 and distance_squared < best_distance_squared then
+                best = target
+                best_distance_squared = distance_squared
+            end
+        end
+    end
+    return best
+end
+
+local function apply_stomp_bias(hired_hand, buttons)
+    local target = nearest_stomp_target(hired_hand)
+    if target == nil then
+        return buttons
+    end
+
+    local hx, hy = get_world_position(hired_hand)
+    local tx, ty = get_world_position(target)
+    local dx = tx - hx
+    local dy = ty - hy
+    local airborne = hired_hand.state == CHAR_STATE.JUMPING
+        or hired_hand.state == CHAR_STATE.FALLING
+
+    if airborne and dy < -0.25 and math.abs(dx) <= 0.95 then
+        buttons = clr_mask(buttons, INPUTS.WHIP)
+        buttons = clr_mask(buttons, INPUTS.DOWN)
+        debug_decision(hired_hand, "finishing a safe stomp instead of attacking")
+        return buttons
+    end
+
+    if hired_hand.standing_on_uid >= 0 and math.abs(dx) >= 0.20 and math.abs(dx) <= 2.1 then
+        local direction = dx < 0 and -1 or 1
+        if hired_hand:can_jump() and movement_risk(hired_hand, direction) == nil then
+            buttons = set_horizontal(buttons, direction)
+            buttons = set_mask(buttons, INPUTS.JUMP)
+            buttons = clr_mask(buttons, INPUTS.WHIP)
+            buttons = clr_mask(buttons, INPUTS.DOWN)
+            debug_decision(hired_hand, "choosing a stomp over a riskier attack")
+        end
+    end
+    return buttons
 end
 
 local function apply_attack_safety(hired_hand, buttons)
@@ -611,6 +791,12 @@ local function cautious_process_input(hired_hand)
     if hired_hand.ai ~= nil and hired_hand.ai.trust < options.minimum_trust then
         hired_hand.ai.trust = options.minimum_trust
     end
+    if options.faster_reactions
+        and hired_hand.ai ~= nil
+        and hired_hand.ai.walk_pause_timer ~= nil
+        and hired_hand.ai.walk_pause_timer < 0 then
+        hired_hand.ai.walk_pause_timer = 0
+    end
 
     local buttons = hired_hand.input.buttons_gameplay
     buttons = apply_attack_safety(hired_hand, buttons)
@@ -621,6 +807,7 @@ local function cautious_process_input(hired_hand)
         buttons, emergency = apply_projectile_dodge(hired_hand, buttons)
     end
     if not emergency then
+        buttons = apply_stomp_bias(hired_hand, buttons)
         buttons = apply_leash(hired_hand, buttons)
         buttons = apply_terrain_safety(hired_hand, buttons)
     end
@@ -636,6 +823,12 @@ local function cautious_pick_up(hired_hand, item)
 
     if options.protect_shops and test_flag(item.flags, ENT_FLAG.SHOP_ITEM) then
         debug_decision(hired_hand, "leaving an unpaid shop item alone")
+        return true
+    end
+
+
+    if options.protect_houyi_bow and item.type.id == HOUYI_BOW_TYPE then
+        debug_decision(hired_hand, "leaving Hou Yi's Bow for the player")
         return true
     end
 
