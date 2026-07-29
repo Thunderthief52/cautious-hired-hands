@@ -98,6 +98,52 @@ function get_entity(uid)
     return entities[uid]
 end
 
+function attach_entity(overlay_uid, attachee_uid)
+    local overlay = entities[overlay_uid]
+    local attachee = entities[attachee_uid]
+    assert(overlay ~= nil and attachee ~= nil, "attach_entity received an invalid uid")
+    local position = attachee:get_absolute_position()
+    local overlay_position = overlay:get_absolute_position()
+    attachee.overlay = overlay
+    attachee.x = position.x - overlay_position.x
+    attachee.y = position.y - overlay_position.y
+end
+
+function worn_backitem(who_uid)
+    local wearer = entities[who_uid]
+    return wearer ~= nil and (wearer.worn_backitem_uid or -1) or -1
+end
+
+function unequip_backitem(who_uid)
+    local wearer = entities[who_uid]
+    if wearer == nil or wearer.worn_backitem_uid == nil or wearer.worn_backitem_uid < 0 then
+        return
+    end
+    local pack = entities[wearer.worn_backitem_uid]
+    if pack ~= nil then
+        local position = pack:get_absolute_position()
+        pack.overlay = nil
+        pack.x = position.x
+        pack.y = position.y
+    end
+    wearer.worn_backitem_uid = -1
+end
+
+function drop(who_uid, what_uid)
+    local carrier = entities[who_uid]
+    if carrier == nil or carrier.holding_uid ~= what_uid then
+        return
+    end
+    local item = entities[what_uid]
+    if item ~= nil then
+        local position = item:get_absolute_position()
+        item.overlay = nil
+        item.x = position.x
+        item.y = position.y
+    end
+    carrier.holding_uid = -1
+end
+
 function get_entities_by_type(entity_type)
     local result = {}
     for uid, entity in pairs(entities) do
@@ -151,6 +197,10 @@ end
 local entity_methods = {}
 
 function entity_methods:get_absolute_position()
+    if self.overlay ~= nil then
+        local parent = self.overlay:get_absolute_position()
+        return {x = parent.x + self.x, y = parent.y + self.y}
+    end
     return {x = self.x, y = self.y}
 end
 
@@ -168,6 +218,10 @@ end
 
 function entity_methods:set_pre_pick_up(callback)
     self.pick_up_callback = callback
+end
+
+function entity_methods:set_post_pick_up(callback)
+    self.post_pick_up_callback = callback
 end
 
 local function new_entity(uid, type_name, x, y)
@@ -199,7 +253,14 @@ local function new_entity(uid, type_name, x, y)
         input = {buttons_gameplay = 0},
         ai = {trust = 0, walk_pause_timer = 1},
         velocityx = 0,
-        velocityy = 0
+        velocityy = 0,
+        overlay = nil,
+        special_offsetx = 0,
+        special_offsety = 0,
+        explosion_trigger = false,
+        explosion_timer = 0,
+        onfire_effect_timer = 0,
+        worn_backitem_uid = -1
     }, {__index = entity_methods})
     entities[uid] = entity
     return entity
@@ -279,12 +340,54 @@ shop_item.flags = 1 << (ENT_FLAG.SHOP_ITEM - 1)
 assert(hired_hand.pick_up_callback(hired_hand, shop_item) == true, "shop pickup was not blocked")
 local teleporter = new_entity(4, "ITEM_TELEPORTER", 0, 0)
 assert(hired_hand.pick_up_callback(hired_hand, teleporter) == true, "teleporter pickup was not blocked")
+local telepack = new_entity(5, "ITEM_TELEPORTER_BACKPACK", 0, 0)
+assert(hired_hand.pick_up_callback(hired_hand, telepack) == false, "safe telepack cargo pickup was blocked")
 
 -- Hou Yi's Bow has its own protection and remains untouched.
-local bow = new_entity(5, "ITEM_HOUYIBOW", 0, 0)
+local bow = new_entity(6, "ITEM_HOUYIBOW", 0, 0)
 options.restrict_dangerous_pickups = false
 assert(hired_hand.pick_up_callback(hired_hand, bow) == true, "Hou Yi's Bow pickup was not blocked")
 options.restrict_dangerous_pickups = true
+
+-- Empty-handed Hired Hands carry nearby packs without equipping or throwing them.
+reset_world()
+leader, hired_hand = new_party()
+leader.x = -4
+local jetpack = new_entity(3, "ITEM_JETPACK", 0.8, 0)
+hired_hand.input.buttons_gameplay = INPUTS.WHIP
+hired_hand.process_input_callback(hired_hand)
+assert(hired_hand.holding_uid == jetpack.uid, "nearby jetpack was not carried")
+assert(jetpack.overlay == hired_hand, "carried jetpack was not attached to the Hired Hand")
+assert(worn_backitem(hired_hand.uid) == -1, "carried jetpack was equipped")
+assert_mask(hired_hand.input.buttons_gameplay, INPUTS.WHIP, false, "carried jetpack throw")
+
+-- Unpaid and burning packs are never taken as cargo.
+reset_world()
+_, hired_hand = new_party()
+local shop_jetpack = new_entity(3, "ITEM_JETPACK", 0.6, 0)
+shop_jetpack.flags = shop_jetpack.flags | (1 << (ENT_FLAG.SHOP_ITEM - 1))
+local burning_hoverpack = new_entity(4, "ITEM_HOVERPACK", -0.6, 0)
+burning_hoverpack.explosion_trigger = true
+hired_hand.process_input_callback(hired_hand)
+assert(hired_hand.holding_uid == -1, "unsafe pack was carried")
+
+-- A pack equipped by vanilla pickup behavior is immediately converted to inert cargo.
+reset_world()
+_, hired_hand = new_party()
+local powerpack = new_entity(3, "ITEM_POWERPACK", 0, 0)
+powerpack.overlay = hired_hand
+hired_hand.worn_backitem_uid = powerpack.uid
+hired_hand.post_pick_up_callback(hired_hand, powerpack)
+assert(hired_hand.worn_backitem_uid == -1, "powerpack remained equipped")
+assert(hired_hand.holding_uid == powerpack.uid, "equipped powerpack was not moved to the hands")
+assert(powerpack.overlay == hired_hand, "converted powerpack was not attached as cargo")
+
+-- A carried pack that catches fire is dropped and treated like a live explosive.
+powerpack.explosion_trigger = true
+hired_hand.process_input_callback(hired_hand)
+assert(hired_hand.holding_uid == -1, "burning powerpack was not dropped")
+assert(powerpack.overlay == nil, "burning powerpack remained attached")
+assert_mask(hired_hand.input.buttons_gameplay, INPUTS.LEFT, true, "burning pack escape")
 
 -- A carried pet is never thrown while a player is nearby.
 reset_world()
