@@ -1,7 +1,7 @@
 meta = {
     name = "Cautious Hired Hands",
-    version = "0.4.0",
-    description = [[Adds a safety layer to the normal Hired Hand AI. Hired Hands avoid dangerous drops, lava, traps, explosives, shoplifting, friendly fire, and dangerous collateral throws, and can cautiously carry spare equipment as inert cargo.]],
+    version = "0.5.0",
+    description = [[Adds a safety layer to the normal Hired Hand AI. Hired Hands follow their leader more persistently while avoiding dangerous drops, lava, traps, explosives, shoplifting, friendly fire, and dangerous collateral throws, and can cautiously carry spare equipment as inert cargo.]],
     author = "Adam & Eli"
 }
 
@@ -86,10 +86,16 @@ register_option_int(
     0,
     3
 )
+register_option_bool(
+    "persistent_follow",
+    "Persistent safe follow",
+    "Keep a separated Hired Hand focused on its human leader and safely moving to catch up without teleporting.",
+    true
+)
 register_option_int(
     "leash_distance",
-    "Follow distance",
-    "When farther away than this many tiles, discourage movement away from the leader.",
+    "Catch-up distance",
+    "Begin persistent catch-up after the leader is this many tiles away. Larger values give the player more space.",
     8,
     4,
     20
@@ -869,17 +875,70 @@ local function apply_attack_safety(hired_hand, buttons)
     return buttons
 end
 
+local function separated_from_leader(hired_hand, leader)
+    local hx, hy = get_world_position(hired_hand)
+    local lx, ly = get_world_position(leader)
+    local dx = lx - hx
+    local dy = ly - hy
+    local separated = math.abs(dx) > options.leash_distance
+        or math.abs(dy) > options.leash_distance
+    return separated, dx, dy
+end
+
+local function has_nearby_ai_target(hired_hand, leader)
+    if hired_hand.ai == nil or hired_hand.ai.target == nil then
+        return false
+    end
+
+    local target = hired_hand.ai.target
+    if target.uid == leader.uid or not same_layer(hired_hand, target) then
+        return false
+    end
+
+    local hx, hy = get_world_position(hired_hand)
+    local tx, ty = get_world_position(target)
+    local dx = tx - hx
+    local dy = ty - hy
+    return dx * dx + dy * dy <= 16.0
+end
+
+local function update_persistent_follow(hired_hand)
+    if not options.persistent_follow or hired_hand.ai == nil then
+        return
+    end
+
+    local leader = nearest_human_leader(hired_hand)
+    if leader == nil or not same_layer(hired_hand, leader) then
+        return
+    end
+
+    local separated = separated_from_leader(hired_hand, leader)
+    if not separated or has_nearby_ai_target(hired_hand, leader) then
+        return
+    end
+
+    -- Reasserting both fields makes the ordinary Hired Hand state machine keep
+    -- treating the human as its destination after a fast separation. Nearby
+    -- combat targets are deliberately left alone so this does not dull reflexes.
+    hired_hand.ai.target = leader
+    hired_hand.ai.target_uid = leader.uid
+    if hired_hand.ai.walk_pause_timer ~= nil and hired_hand.ai.walk_pause_timer <= 0 then
+        hired_hand.ai.walk_pause_timer = 45
+    end
+end
+
 local function apply_leash(hired_hand, buttons)
+    if not options.persistent_follow then
+        return buttons
+    end
+
     local leader = nearest_human_leader(hired_hand)
     if leader == nil or not same_layer(hired_hand, leader) then
         return buttons
     end
 
-    local hx, hy = get_world_position(hired_hand)
-    local lx, ly = get_world_position(leader)
-    local dx = lx - hx
-    local dy = ly - hy
-    if math.abs(dx) <= options.leash_distance or math.abs(dy) > 3.0 then
+    local separated, dx = separated_from_leader(hired_hand, leader)
+    if not separated or math.abs(dx) < 0.75 then
         return buttons
     end
 
@@ -892,6 +951,7 @@ local function apply_leash(hired_hand, buttons)
 
     if hired_hand.standing_on_uid >= 0 and movement_risk(hired_hand, toward_leader) == nil then
         buttons = set_horizontal(buttons, toward_leader)
+        debug_decision(hired_hand, "safely catching up with the leader")
     end
     return buttons
 end
@@ -950,6 +1010,7 @@ local function cautious_process_input(hired_hand)
         and hired_hand.ai.walk_pause_timer < 0 then
         hired_hand.ai.walk_pause_timer = 0
     end
+    update_persistent_follow(hired_hand)
 
     drop_unsafe_carried_equipment(hired_hand)
     try_carry_nearby_equipment(hired_hand)
@@ -963,8 +1024,8 @@ local function cautious_process_input(hired_hand)
         buttons, emergency = apply_projectile_dodge(hired_hand, buttons)
     end
     if not emergency then
-        buttons = apply_stomp_bias(hired_hand, buttons)
         buttons = apply_leash(hired_hand, buttons)
+        buttons = apply_stomp_bias(hired_hand, buttons)
         buttons = apply_terrain_safety(hired_hand, buttons)
     end
 

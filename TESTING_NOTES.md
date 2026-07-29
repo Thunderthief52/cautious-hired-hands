@@ -4,24 +4,29 @@ Use this file to record observations from the Windows PC. Exact rooms and short 
 
 | Build | Level/seed | Situation | Expected | Actual | Debug message |
 |---|---|---|---|---|---|
-| 0.4.0 |  | Pack beside empty-handed HH | Carries it in hands, not on back |  |  |
-| 0.4.0 |  | Yellow cape beside HH | Carries it without wearing it |  |  |
-| 0.4.0 |  | Gloves/boots/paste beside HH | Carries item without gaining its effect |  |  |
-| 0.4.0 |  | Second cargo item | Keeps current cargo and leaves second item |  |  |
-| 0.4.0 |  | Combat with carried equipment | Does not throw it |  |  |
-| 0.4.0 |  | Equipment carried through exit | Appears in hands next level |  |  |
-| 0.4.0 |  | Burning pack | Drops it and retreats |  |  |
-| 0.4.0 |  | Shop equipment | Leaves unpaid item alone |  |  |
-| 0.4.0 |  | Ledge | Stops before unsafe drop |  |  |
-| 0.4.0 |  | Spikes/lava | Stops or turns around |  |  |
-| 0.4.0 |  | Player in firing line | Does not attack |  |  |
-| 0.4.0 |  | Pet held near player | Does not throw the pet |  |  |
-| 0.4.0 |  | Enemy/body near player | Does not knock it toward player |  |  |
-| 0.4.0 |  | Basic enemy on safe ground | Prefers a stomp |  |  |
-| 0.4.0 |  | Hou Yi's Bow | Leaves the bow alone |  |  |
-| 0.4.0 |  | Lit bomb nearby | Moves to safer side |  |  |
-| 0.4.0 |  | Incoming arrow | Reacts early and ducks or jumps |  |  |
-| 0.4.0 |  | Shop | Does not steal or attack |  |  |
+| 0.5.0 |  | Sprint away on safe flat ground | Renews pursuit and catches up |  |  |
+| 0.5.0 |  | Horizontal plus vertical separation | Keeps navigating toward player |  |  |
+| 0.5.0 |  | Catch-up route crosses deep drop | Stops before the drop but retains player target |  |  |
+| 0.5.0 |  | Nearby enemy while separated | Handles immediate enemy, then resumes pursuit |  |  |
+| 0.5.0 |  | Player and HH on different layers | Leaves transition behavior unchanged |  |  |
+| 0.5.0 |  | Pack beside empty-handed HH | Carries it in hands, not on back |  |  |
+| 0.5.0 |  | Yellow cape beside HH | Carries it without wearing it |  |  |
+| 0.5.0 |  | Gloves/boots/paste beside HH | Carries item without gaining its effect |  |  |
+| 0.5.0 |  | Second cargo item | Keeps current cargo and leaves second item |  |  |
+| 0.5.0 |  | Combat with carried equipment | Does not throw it |  |  |
+| 0.5.0 |  | Equipment carried through exit | Appears in hands next level |  |  |
+| 0.5.0 |  | Burning pack | Drops it and retreats |  |  |
+| 0.5.0 |  | Shop equipment | Leaves unpaid item alone |  |  |
+| 0.5.0 |  | Ledge | Stops before unsafe drop |  |  |
+| 0.5.0 |  | Spikes/lava | Stops or turns around |  |  |
+| 0.5.0 |  | Player in firing line | Does not attack |  |  |
+| 0.5.0 |  | Pet held near player | Does not throw the pet |  |  |
+| 0.5.0 |  | Enemy/body near player | Does not knock it toward player |  |  |
+| 0.5.0 |  | Basic enemy on safe ground | Prefers a stomp |  |  |
+| 0.5.0 |  | Hou Yi's Bow | Leaves the bow alone |  |  |
+| 0.5.0 |  | Lit bomb nearby | Moves to safer side |  |  |
+| 0.5.0 |  | Incoming arrow | Reacts early and ducks or jumps |  |  |
+| 0.5.0 |  | Shop | Does not steal or attack |  |  |
 
 ## Useful feedback
 
@@ -31,5 +36,6 @@ Use this file to record observations from the Windows PC. Exact rooms and short 
 - Whether the hazard was in front, behind, above, or below it.
 - Whether the Hired Hand was holding a pet, body, rock, or weapon.
 - Roughly how many tiles separated the player, Hired Hand, and intended target.
+- For follow tests: whether the route was horizontal, vertical, blocked, hazardous, or briefly off-screen.
 - For cargo tests: the equipment type, whether it appeared in the hands or became equipped, and what happened after a level exit.
 - Any interaction with Eli's political Hired Hand mod.
