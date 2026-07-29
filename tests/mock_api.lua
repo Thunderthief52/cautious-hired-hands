@@ -251,7 +251,7 @@ local function new_entity(uid, type_name, x, y)
         holding_uid = -1,
         linked_companion_parent = -1,
         input = {buttons_gameplay = 0},
-        ai = {trust = 0, walk_pause_timer = 1},
+        ai = {trust = 0, walk_pause_timer = 1, target = nil, target_uid = -1},
         velocityx = 0,
         velocityy = 0,
         overlay = nil,
@@ -473,5 +473,63 @@ assert_mask(hired_hand.input.buttons_gameplay, INPUTS.DOWN, true, "far projectil
 hired_hand.ai.trust = 0
 hired_hand.process_input_callback(hired_hand)
 assert(hired_hand.ai.trust == options.minimum_trust, "minimum trust was not applied")
+
+-- A Hired Hand left far behind keeps the player as its target and walks to catch up.
+reset_world()
+leader, hired_hand = new_party()
+leader.x = 12
+hired_hand.ai.walk_pause_timer = -20
+hired_hand.process_input_callback(hired_hand)
+assert(hired_hand.ai.target == leader, "distant leader was not restored as the AI target")
+assert(hired_hand.ai.target_uid == leader.uid, "distant leader uid was not restored")
+assert(hired_hand.ai.walk_pause_timer == 45, "distant Hired Hand was not kept out of an idle pause")
+assert_mask(hired_hand.input.buttons_gameplay, INPUTS.RIGHT, true, "safe catch-up direction")
+
+-- Catch-up never forces a Hired Hand across an unsupported deep drop.
+reset_world()
+leader, hired_hand = new_party()
+leader.x = 12
+scenario.support = false
+hired_hand.process_input_callback(hired_hand)
+assert(hired_hand.ai.target_uid == leader.uid, "leader target was lost at a dangerous gap")
+assert_mask(hired_hand.input.buttons_gameplay, INPUTS.RIGHT, false, "catch-up across deep drop")
+
+-- A nearby combat target is preserved even while the leader is far away.
+reset_world()
+leader, hired_hand = new_party()
+leader.x = 12
+local nearby_enemy = new_entity(3, "MONS_SKELETON", -2, 0)
+hired_hand.ai.target = nearby_enemy
+hired_hand.ai.target_uid = nearby_enemy.uid
+hired_hand.process_input_callback(hired_hand)
+assert(hired_hand.ai.target == nearby_enemy, "nearby combat target was overwritten")
+assert(hired_hand.ai.target_uid == nearby_enemy.uid, "nearby combat target uid was overwritten")
+
+-- Nearby leaders do not activate the forced catch-up movement.
+reset_world()
+leader, hired_hand = new_party()
+leader.x = 5
+hired_hand.input.buttons_gameplay = INPUTS.LEFT
+hired_hand.process_input_callback(hired_hand)
+assert(hired_hand.ai.target_uid == -1, "nearby leader unnecessarily replaced the AI target")
+assert_mask(hired_hand.input.buttons_gameplay, INPUTS.LEFT, true, "nearby personal-space buffer")
+
+-- Large vertical separation still restores the leader target.
+reset_world()
+leader, hired_hand = new_party()
+leader.x = 2
+leader.y = 12
+hired_hand.process_input_callback(hired_hand)
+assert(hired_hand.ai.target_uid == leader.uid, "vertically separated leader was not restored")
+
+-- Cross-layer leaders are left entirely to the vanilla transition behavior.
+reset_world()
+leader, hired_hand = new_party()
+leader.x = 12
+leader.layer = 1
+hired_hand.input.buttons_gameplay = INPUTS.LEFT
+hired_hand.process_input_callback(hired_hand)
+assert(hired_hand.ai.target_uid == -1, "cross-layer leader replaced the AI target")
+assert_mask(hired_hand.input.buttons_gameplay, INPUTS.LEFT, true, "cross-layer follow input")
 
 print("Cautious Hired Hands mock tests: all scenarios passed")
