@@ -2,17 +2,20 @@
 
 `Cautious Hired Hands` is a Playlunky/Overlunky Lua mod for Spelunky 2. It keeps the game's normal Hired Hand AI and adds a last-moment safety filter to its decisions.
 
-## What version 0.3 does
+## What version 0.4 does
 
-Version 0.3 adds experimental equipment-pack cargo behavior:
+Version 0.4 expands the experimental cargo slot for co-op duplicate equipment:
 
-- An empty-handed Hired Hand can collect a jetpack, hoverpack, powerpack, or teleporter backpack within about 1.35 tiles.
-- The pack is attached to its hands as inert cargo instead of being added to its equipped powerups, so jumping cannot activate it.
-- If vanilla behavior equips the pack first, the safety layer immediately unequips it and moves it into the hands.
-- The Hired Hand will not throw a carried pack, steal one from a shop, pick up one that is already burning, or keep holding one that catches fire.
+- An empty-handed Hired Hand can collect a jetpack, hoverpack, powerpack, teleporter backpack, yellow cape, climbing gloves, spring shoes, spike shoes, or paste within about 1.35 tiles.
+- The equipment is attached to its hands as inert cargo instead of being worn or added to its powerups, so the Hired Hand does not gain the item effect.
+- Normal pickup behavior is skipped for these items, preventing gloves, boots, and paste from disappearing into the Hired Hand's inventory.
+- Each Hired Hand carries only one cargo item and keeps whatever it already holds.
+- It will not throw carried equipment, steal it from a shop, pick up a burning item, or keep holding equipment that catches fire.
 - A burning carried pack is dropped and treated like a live explosive so the Hired Hand attempts to retreat.
 
-The feature is enabled by **Carry equipment packs (experimental)**. Turn that option off if the pack appears in the wrong position, disappears during a level transition, or conflicts with another behavior mod.
+The feature is enabled by **Carry spare equipment (experimental)**. Turn that option off if an item appears in the wrong position, disappears during a level transition, or conflicts with another behavior mod.
+
+The larger cargo list has negligible performance cost: the mod still makes one small nearby-item query only while a Hired Hand's hands are empty.
 
 The existing safety layer still:
 
@@ -30,7 +33,7 @@ The existing safety layer still:
 - Raises low trust to a configurable minimum and discourages wandering away from the leader.
 - Exposes every major behavior as an option in the script settings.
 
-This mod makes Hired Hands much more cautious, not invincible. It cannot plan an entire generated level, predict every chain reaction, or rescue a companion that is already falling into danger. The stomp preference only overrides an attack when the enemy is stompable and the immediate approach passes the terrain-safety check. Hand-carried packs deliberately bypass the game's normal backpack-equipping path, so this feature especially needs real-game testing.
+This mod makes Hired Hands much more cautious, not invincible. It cannot plan an entire generated level, predict every chain reaction, or rescue a companion that is already falling into danger. The stomp preference only overrides an attack when the enemy is stompable and the immediate approach passes the terrain-safety check. Hand-carried equipment deliberately bypasses the game's normal equipping and powerup-collection paths, so this feature especially needs real-game testing.
 
 ## Install on the Windows PC
 
@@ -69,9 +72,9 @@ For a quick controlled test, spawn or find one Hired Hand and try these situatio
 7. Give it a pet while you stand nearby; it should refuse to throw the pet.
 8. Put a skeleton or loose body between it and your character, slightly off the direct firing line; it should avoid an attack that could knock the body into you.
 9. Let it approach a basic stompable enemy on safe ground; it should usually jump toward the enemy instead of whipping or throwing.
-10. Drop a jetpack, hoverpack, powerpack, or telepack beside an empty-handed Hired Hand; it should carry the pack visibly without wearing or activating it.
-11. Jump around after it takes the pack; the pack should stay inert, and the Hired Hand should not throw it during combat.
-12. Finish a level while it carries a pack; check that the pack transfers and returns to its hands in the next level.
+10. Drop a pack, yellow cape, climbing gloves, either pair of shoes, or paste beside an empty-handed Hired Hand; it should carry the item visibly without equipping or collecting it.
+11. Jump and fight after it takes the equipment; the item should stay inert, and the Hired Hand should not throw it during combat.
+12. Finish a level while it carries spare equipment; check that the item transfers and returns to its hands in the next level.
 13. Finish a level with it; it should transfer normally and continue using the safety layer.
 
 Turn on **Debug safety decisions** in the script options if a choice seems wrong. The console messages will say why an input was blocked. A screenshot/video plus those messages will make tuning much faster.
@@ -87,7 +90,7 @@ The shipped settings favor survival over speed. If the Hired Hand hesitates too 
 - Turn off **Leave Hou Yi's Bow alone** only if you specifically want a Hired Hand to carry the special bow.
 - Turn off **Prevent collateral damage** if the wider throw and knockback exclusion zone feels too restrictive.
 - Turn off **Faster reactions** to retain the vanilla idle pauses and the original shorter projectile scan.
-- Turn off **Carry equipment packs (experimental)** to leave backpack handling entirely to the vanilla game.
+- Turn off **Carry spare equipment (experimental)** to leave equipment handling entirely to the vanilla game.
 
 ## Compatibility target
 
