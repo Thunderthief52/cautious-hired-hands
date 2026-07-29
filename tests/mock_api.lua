@@ -341,7 +341,8 @@ assert(hired_hand.pick_up_callback(hired_hand, shop_item) == true, "shop pickup 
 local teleporter = new_entity(4, "ITEM_TELEPORTER", 0, 0)
 assert(hired_hand.pick_up_callback(hired_hand, teleporter) == true, "teleporter pickup was not blocked")
 local telepack = new_entity(5, "ITEM_TELEPORTER_BACKPACK", 0, 0)
-assert(hired_hand.pick_up_callback(hired_hand, telepack) == false, "safe telepack cargo pickup was blocked")
+assert(hired_hand.pick_up_callback(hired_hand, telepack) == true, "telepack vanilla pickup was not replaced")
+assert(hired_hand.holding_uid == telepack.uid, "telepack was not converted to hand-carried cargo")
 
 -- Hou Yi's Bow has its own protection and remains untouched.
 local bow = new_entity(6, "ITEM_HOUYIBOW", 0, 0)
@@ -360,6 +361,30 @@ assert(hired_hand.holding_uid == jetpack.uid, "nearby jetpack was not carried")
 assert(jetpack.overlay == hired_hand, "carried jetpack was not attached to the Hired Hand")
 assert(worn_backitem(hired_hand.uid) == -1, "carried jetpack was equipped")
 assert_mask(hired_hand.input.buttons_gameplay, INPUTS.WHIP, false, "carried jetpack throw")
+local second_cargo = new_entity(4, "ITEM_PICKUP_CLIMBINGGLOVES", -0.8, 0)
+hired_hand.process_input_callback(hired_hand)
+assert(hired_hand.holding_uid == jetpack.uid, "existing cargo was replaced")
+assert(second_cargo.overlay == nil, "second cargo item was taken with occupied hands")
+
+-- Duplicate co-op equipment uses the same inert cargo slot without granting it.
+for _, equipment_type in ipairs({
+    "ITEM_CAPE",
+    "ITEM_PICKUP_CLIMBINGGLOVES",
+    "ITEM_PICKUP_SPRINGSHOES",
+    "ITEM_PICKUP_SPIKESHOES",
+    "ITEM_PICKUP_PASTE"
+}) do
+    reset_world()
+    leader, hired_hand = new_party()
+    leader.x = -4
+    local equipment = new_entity(3, equipment_type, 0.8, 0)
+    hired_hand.input.buttons_gameplay = INPUTS.WHIP
+    hired_hand.process_input_callback(hired_hand)
+    assert(hired_hand.holding_uid == equipment.uid, equipment_type .. " was not carried")
+    assert(equipment.overlay == hired_hand, equipment_type .. " was not attached as cargo")
+    assert(worn_backitem(hired_hand.uid) == -1, equipment_type .. " was equipped")
+    assert_mask(hired_hand.input.buttons_gameplay, INPUTS.WHIP, false, equipment_type .. " throw")
+end
 
 -- Unpaid and burning packs are never taken as cargo.
 reset_world()
