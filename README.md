@@ -2,7 +2,19 @@
 
 `Cautious Hired Hands` is a Playlunky/Overlunky Lua mod for Spelunky 2. It keeps the game's normal Hired Hand AI and adds a last-moment safety filter to its decisions.
 
-## What version 0.2 does
+## What version 0.3 does
+
+Version 0.3 adds experimental equipment-pack cargo behavior:
+
+- An empty-handed Hired Hand can collect a jetpack, hoverpack, powerpack, or teleporter backpack within about 1.35 tiles.
+- The pack is attached to its hands as inert cargo instead of being added to its equipped powerups, so jumping cannot activate it.
+- If vanilla behavior equips the pack first, the safety layer immediately unequips it and moves it into the hands.
+- The Hired Hand will not throw a carried pack, steal one from a shop, pick up one that is already burning, or keep holding one that catches fire.
+- A burning carried pack is dropped and treated like a live explosive so the Hired Hand attempts to retreat.
+
+The feature is enabled by **Carry equipment packs (experimental)**. Turn that option off if the pack appears in the wrong position, disappears during a level transition, or conflicts with another behavior mod.
+
+The existing safety layer still:
 
 - Stops grounded Hired Hands before lava, spikes, dangerous traps, and overly deep drops.
 - Blocks attacks when a player or another Hired Hand is in the weapon's widened line of fire.
@@ -18,7 +30,7 @@
 - Raises low trust to a configurable minimum and discourages wandering away from the leader.
 - Exposes every major behavior as an option in the script settings.
 
-This mod makes Hired Hands much more cautious, not invincible. It cannot plan an entire generated level, predict every chain reaction, or rescue a companion that is already falling into danger. The stomp preference only overrides an attack when the enemy is stompable and the immediate approach passes the terrain-safety check.
+This mod makes Hired Hands much more cautious, not invincible. It cannot plan an entire generated level, predict every chain reaction, or rescue a companion that is already falling into danger. The stomp preference only overrides an attack when the enemy is stompable and the immediate approach passes the terrain-safety check. Hand-carried packs deliberately bypass the game's normal backpack-equipping path, so this feature especially needs real-game testing.
 
 ## Install on the Windows PC
 
@@ -57,7 +69,10 @@ For a quick controlled test, spawn or find one Hired Hand and try these situatio
 7. Give it a pet while you stand nearby; it should refuse to throw the pet.
 8. Put a skeleton or loose body between it and your character, slightly off the direct firing line; it should avoid an attack that could knock the body into you.
 9. Let it approach a basic stompable enemy on safe ground; it should usually jump toward the enemy instead of whipping or throwing.
-10. Finish a level with it; it should transfer normally and continue using the safety layer.
+10. Drop a jetpack, hoverpack, powerpack, or telepack beside an empty-handed Hired Hand; it should carry the pack visibly without wearing or activating it.
+11. Jump around after it takes the pack; the pack should stay inert, and the Hired Hand should not throw it during combat.
+12. Finish a level while it carries a pack; check that the pack transfers and returns to its hands in the next level.
+13. Finish a level with it; it should transfer normally and continue using the safety layer.
 
 Turn on **Debug safety decisions** in the script options if a choice seems wrong. The console messages will say why an input was blocked. A screenshot/video plus those messages will make tuning much faster.
 
@@ -72,6 +87,7 @@ The shipped settings favor survival over speed. If the Hired Hand hesitates too 
 - Turn off **Leave Hou Yi's Bow alone** only if you specifically want a Hired Hand to carry the special bow.
 - Turn off **Prevent collateral damage** if the wider throw and knockback exclusion zone feels too restrictive.
 - Turn off **Faster reactions** to retain the vanilla idle pauses and the original shorter projectile scan.
+- Turn off **Carry equipment packs (experimental)** to leave backpack handling entirely to the vanilla game.
 
 ## Compatibility target
 
