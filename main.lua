@@ -1,7 +1,7 @@
 meta = {
     name = "Cautious Hired Hands",
-    version = "0.3.0",
-    description = [[Adds a safety layer to the normal Hired Hand AI. Hired Hands avoid dangerous drops, lava, traps, explosives, shoplifting, friendly fire, and dangerous collateral throws, and can cautiously carry equipment packs as inert cargo.]],
+    version = "0.4.0",
+    description = [[Adds a safety layer to the normal Hired Hand AI. Hired Hands avoid dangerous drops, lava, traps, explosives, shoplifting, friendly fire, and dangerous collateral throws, and can cautiously carry spare equipment as inert cargo.]],
     author = "Adam & Eli"
 }
 
@@ -62,8 +62,8 @@ register_option_bool(
 )
 register_option_bool(
     "carry_equipment_packs",
-    "Carry equipment packs (experimental)",
-    "Let empty-handed Hired Hands carry nearby jetpacks, hoverpacks, powerpacks, and telepacks without wearing or activating them.",
+    "Carry spare equipment (experimental)",
+    "Let empty-handed Hired Hands carry nearby packs, a yellow cape, climbing gloves, spring or spike shoes, and paste without equipping them.",
     true
 )
 register_option_bool(
@@ -157,11 +157,23 @@ local REFUSED_PICKUPS = type_list({
     "ITEM_LAVAPOT"
 })
 
-local CARRIABLE_PACKS = type_list({
+local EXPLOSIVE_PACKS = type_list({
     "ITEM_JETPACK",
     "ITEM_HOVERPACK",
     "ITEM_POWERPACK",
     "ITEM_TELEPORTER_BACKPACK"
+})
+
+local CARRIABLE_EQUIPMENT = type_list({
+    "ITEM_JETPACK",
+    "ITEM_HOVERPACK",
+    "ITEM_POWERPACK",
+    "ITEM_TELEPORTER_BACKPACK",
+    "ITEM_CAPE",
+    "ITEM_PICKUP_CLIMBINGGLOVES",
+    "ITEM_PICKUP_SPRINGSHOES",
+    "ITEM_PICKUP_SPIKESHOES",
+    "ITEM_PICKUP_PASTE"
 })
 
 local RANGED_WEAPONS = type_list({
@@ -181,6 +193,11 @@ local NEVER_USE_WEAPONS = type_list({
     "ITEM_HOVERPACK",
     "ITEM_POWERPACK",
     "ITEM_TELEPORTER_BACKPACK",
+    "ITEM_CAPE",
+    "ITEM_PICKUP_CLIMBINGGLOVES",
+    "ITEM_PICKUP_SPRINGSHOES",
+    "ITEM_PICKUP_SPIKESHOES",
+    "ITEM_PICKUP_PASTE",
     "ITEM_PLASMACANNON",
     "ITEM_SCEPTER",
     "ITEM_CLONEGUN",
@@ -252,7 +269,8 @@ local function to_set(values)
 end
 
 local REFUSED_PICKUP_SET = to_set(REFUSED_PICKUPS)
-local CARRIABLE_PACK_SET = to_set(CARRIABLE_PACKS)
+local EXPLOSIVE_PACK_SET = to_set(EXPLOSIVE_PACKS)
+local CARRIABLE_EQUIPMENT_SET = to_set(CARRIABLE_EQUIPMENT)
 local RANGED_WEAPON_SET = to_set(RANGED_WEAPONS)
 local NEVER_USE_WEAPON_SET = to_set(NEVER_USE_WEAPONS)
 local FRIENDLY_NPC_SET = to_set(FRIENDLY_NPCS)
@@ -411,20 +429,20 @@ local function nearby_live_bomb(hired_hand, x, y)
     local closest = nil
     local closest_distance = math.huge
     local explosive_uids = entities_near(LIVE_BOMBS, x, y, hired_hand.layer, 3.1)
-    for _, uid in ipairs(entities_near(CARRIABLE_PACKS, x, y, hired_hand.layer, 3.1)) do
+    for _, uid in ipairs(entities_near(EXPLOSIVE_PACKS, x, y, hired_hand.layer, 3.1)) do
         explosive_uids[#explosive_uids + 1] = uid
     end
 
     for _, uid in ipairs(explosive_uids) do
         local bomb = get_entity(uid)
         local dangerous_pack = bomb ~= nil
-            and CARRIABLE_PACK_SET[bomb.type.id]
+            and EXPLOSIVE_PACK_SET[bomb.type.id]
             and (bomb.explosion_trigger == true
                 or (bomb.explosion_timer ~= nil and bomb.explosion_timer > 0)
                 or (bomb.onfire_effect_timer ~= nil and bomb.onfire_effect_timer > 0))
         if bomb ~= nil
             and bomb.overlay ~= hired_hand
-            and (not CARRIABLE_PACK_SET[bomb.type.id] or dangerous_pack) then
+            and (not EXPLOSIVE_PACK_SET[bomb.type.id] or dangerous_pack) then
             local bx, by = get_world_position(bomb)
             local dx = x - bx
             local dy = y - by
@@ -579,104 +597,109 @@ local function held_item(hired_hand)
     return get_entity(hired_hand.holding_uid)
 end
 
-local function pack_is_safe_cargo(pack)
-    if pack == nil or not CARRIABLE_PACK_SET[pack.type.id] then
+local function equipment_is_safe_cargo(equipment)
+    if equipment == nil or not CARRIABLE_EQUIPMENT_SET[equipment.type.id] then
         return false
     end
-    if test_flag(pack.flags, ENT_FLAG.SHOP_ITEM) then
+    if test_flag(equipment.flags, ENT_FLAG.SHOP_ITEM) then
         return false
     end
-    if pack.explosion_trigger == true
-        or (pack.explosion_timer ~= nil and pack.explosion_timer > 0)
-        or (pack.onfire_effect_timer ~= nil and pack.onfire_effect_timer > 0) then
+    if equipment.onfire_effect_timer ~= nil and equipment.onfire_effect_timer > 0 then
+        return false
+    end
+    if EXPLOSIVE_PACK_SET[equipment.type.id]
+        and (equipment.explosion_trigger == true
+            or (equipment.explosion_timer ~= nil and equipment.explosion_timer > 0)) then
         return false
     end
     return true
 end
 
-local function carry_pack_by_hand(hired_hand, pack)
-    if hired_hand.holding_uid >= 0 or not pack_is_safe_cargo(pack) then
+local function carry_equipment_by_hand(hired_hand, equipment)
+    if hired_hand.holding_uid >= 0 or not equipment_is_safe_cargo(equipment) then
         return false
     end
 
-    -- Backpacks normally equip themselves when pick_up is called. Attaching one
-    -- directly keeps it out of the powerup map, so it is inert hand-carried cargo.
-    attach_entity(hired_hand.uid, pack.uid)
-    hired_hand.holding_uid = pack.uid
-    pack.x = 0.38
-    pack.y = 0.05
-    pack.special_offsetx = 0.38
-    pack.special_offsety = 0.05
-    pack.velocityx = 0
-    pack.velocityy = 0
-    debug_decision(hired_hand, "carrying an equipment pack without equipping it")
+    -- Wearables and pickup powerups normally equip or disappear into inventory.
+    -- A direct attachment keeps the physical entity inert and hand-carried.
+    attach_entity(hired_hand.uid, equipment.uid)
+    hired_hand.holding_uid = equipment.uid
+    equipment.x = 0.38
+    equipment.y = 0.05
+    equipment.special_offsetx = 0.38
+    equipment.special_offsety = 0.05
+    equipment.velocityx = 0
+    equipment.velocityy = 0
+    debug_decision(hired_hand, "carrying spare equipment without equipping it")
     return true
 end
 
-local function convert_worn_pack_to_cargo(hired_hand)
+local function convert_worn_equipment_to_cargo(hired_hand)
     if not options.carry_equipment_packs or hired_hand.holding_uid >= 0 then
         return false
     end
 
-    local pack_uid = worn_backitem(hired_hand.uid)
-    if pack_uid == nil or pack_uid < 0 then
+    local equipment_uid = worn_backitem(hired_hand.uid)
+    if equipment_uid == nil or equipment_uid < 0 then
         return false
     end
-    local pack = get_entity(pack_uid)
-    if pack == nil or not CARRIABLE_PACK_SET[pack.type.id] then
+    local equipment = get_entity(equipment_uid)
+    if equipment == nil or not CARRIABLE_EQUIPMENT_SET[equipment.type.id] then
         return false
     end
 
     unequip_backitem(hired_hand.uid)
-    pack = get_entity(pack_uid)
-    if pack ~= nil and carry_pack_by_hand(hired_hand, pack) then
-        debug_decision(hired_hand, "moving a worn pack into the hands as inert cargo")
+    equipment = get_entity(equipment_uid)
+    if equipment ~= nil and carry_equipment_by_hand(hired_hand, equipment) then
+        debug_decision(hired_hand, "moving worn equipment into the hands as inert cargo")
         return true
     end
     return false
 end
 
-local function try_carry_nearby_pack(hired_hand)
+local function try_carry_nearby_equipment(hired_hand)
     if not options.carry_equipment_packs or hired_hand.holding_uid >= 0 then
         return false
     end
-    if convert_worn_pack_to_cargo(hired_hand) then
+    if convert_worn_equipment_to_cargo(hired_hand) then
         return true
     end
 
     local hx, hy = get_world_position(hired_hand)
     local closest = nil
     local closest_distance_squared = math.huge
-    for _, uid in ipairs(entities_near(CARRIABLE_PACKS, hx, hy, hired_hand.layer, 1.35)) do
-        local pack = get_entity(uid)
-        if pack ~= nil and pack.overlay == nil and pack_is_safe_cargo(pack) then
-            local px, py = get_world_position(pack)
+    for _, uid in ipairs(entities_near(CARRIABLE_EQUIPMENT, hx, hy, hired_hand.layer, 1.35)) do
+        local equipment = get_entity(uid)
+        if equipment ~= nil
+            and equipment.overlay == nil
+            and equipment_is_safe_cargo(equipment) then
+            local px, py = get_world_position(equipment)
             local dx = px - hx
             local dy = py - hy
             local distance_squared = dx * dx + dy * dy
             if distance_squared < closest_distance_squared then
-                closest = pack
+                closest = equipment
                 closest_distance_squared = distance_squared
             end
         end
     end
 
     if closest ~= nil then
-        return carry_pack_by_hand(hired_hand, closest)
+        return carry_equipment_by_hand(hired_hand, closest)
     end
     return false
 end
 
-local function drop_unsafe_carried_pack(hired_hand)
+local function drop_unsafe_carried_equipment(hired_hand)
     local held = held_item(hired_hand)
     if held == nil
-        or not CARRIABLE_PACK_SET[held.type.id]
-        or pack_is_safe_cargo(held) then
+        or not CARRIABLE_EQUIPMENT_SET[held.type.id]
+        or equipment_is_safe_cargo(held) then
         return false
     end
 
     drop(hired_hand.uid, held.uid)
-    debug_decision(hired_hand, "dropping a burning equipment pack before it explodes")
+    debug_decision(hired_hand, "dropping burning carried equipment")
     return true
 end
 
@@ -928,8 +951,8 @@ local function cautious_process_input(hired_hand)
         hired_hand.ai.walk_pause_timer = 0
     end
 
-    drop_unsafe_carried_pack(hired_hand)
-    try_carry_nearby_pack(hired_hand)
+    drop_unsafe_carried_equipment(hired_hand)
+    try_carry_nearby_equipment(hired_hand)
 
     local buttons = hired_hand.input.buttons_gameplay
     buttons = apply_attack_safety(hired_hand, buttons)
@@ -965,11 +988,12 @@ local function cautious_pick_up(hired_hand, item)
         return true
     end
 
-    if options.carry_equipment_packs and CARRIABLE_PACK_SET[item.type.id] then
-        if pack_is_safe_cargo(item) then
-            return false
+    if options.carry_equipment_packs and CARRIABLE_EQUIPMENT_SET[item.type.id] then
+        if equipment_is_safe_cargo(item) and hired_hand.holding_uid < 0 then
+            carry_equipment_by_hand(hired_hand, item)
+            return true
         end
-        debug_decision(hired_hand, "refusing a burning or otherwise unsafe equipment pack")
+        debug_decision(hired_hand, "refusing unsafe spare equipment or keeping the current cargo")
         return true
     end
 
@@ -984,9 +1008,9 @@ end
 local function cautious_post_pick_up(hired_hand, item)
     if item ~= nil
         and options.carry_equipment_packs
-        and CARRIABLE_PACK_SET[item.type.id]
+        and CARRIABLE_EQUIPMENT_SET[item.type.id]
         and hired_hand.holding_uid < 0 then
-        convert_worn_pack_to_cargo(hired_hand)
+        convert_worn_equipment_to_cargo(hired_hand)
     end
 end
 
