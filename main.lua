@@ -1,6 +1,6 @@
 meta = {
     name = "Cautious Hired Hands",
-    version = "0.6.0",
+    version = "0.7.0",
     description = [[Adds a safety layer to the normal Hired Hand AI. Hired Hands follow their leader more persistently while avoiding dangerous drops, lava, traps, explosives, shoplifting, friendly fire, and dangerous collateral throws, and can cautiously carry spare equipment as inert cargo.]],
     author = "Adam & Eli"
 }
@@ -62,8 +62,8 @@ register_option_bool(
 )
 register_option_bool(
     "carry_equipment_packs",
-    "Carry spare equipment (experimental)",
-    "Let empty-handed Hired Hands carry nearby packs, a yellow cape, gloves, shoes, paste, and Kapalas without equipping them, including across level exits.",
+    "Carry spare items (experimental)",
+    "Carry packs, both capes, all pickup powerups, quest pickups, food, and supplies without using them, including across level exits.",
     true
 )
 register_option_bool(
@@ -108,6 +108,7 @@ register_option_bool(
 )
 
 local hooked_hired_hands = {}
+local hooked_cargo_items = {}
 local last_debug_frame = {}
 
 local function type_list(names)
@@ -176,11 +177,40 @@ local CARRIABLE_EQUIPMENT = type_list({
     "ITEM_POWERPACK",
     "ITEM_TELEPORTER_BACKPACK",
     "ITEM_CAPE",
+    "ITEM_VLADS_CAPE",
+    "ITEM_PICKUP_TORNJOURNALPAGE",
+    "ITEM_PICKUP_JOURNAL",
+    "ITEM_PICKUP_ROPE",
+    "ITEM_PICKUP_ROPEPILE",
+    "ITEM_PICKUP_BOMBBAG",
+    "ITEM_PICKUP_BOMBBOX",
+    "ITEM_PICKUP_12BAG",
+    "ITEM_PICKUP_24BAG",
+    "ITEM_PICKUP_ROYALJELLY",
+    "ITEM_PICKUP_COOKEDTURKEY",
+    "ITEM_PICKUP_GIANTFOOD",
+    "ITEM_PICKUP_ELIXIR",
+    "ITEM_PICKUP_CLOVER",
+    "ITEM_PICKUP_SEEDEDRUNSUNLOCKER",
+    "ITEM_PICKUP_SPECTACLES",
     "ITEM_PICKUP_CLIMBINGGLOVES",
+    "ITEM_PICKUP_PITCHERSMITT",
     "ITEM_PICKUP_SPRINGSHOES",
     "ITEM_PICKUP_SPIKESHOES",
     "ITEM_PICKUP_PASTE",
-    "ITEM_PICKUP_KAPALA"
+    "ITEM_PICKUP_COMPASS",
+    "ITEM_PICKUP_SPECIALCOMPASS",
+    "ITEM_PICKUP_PARACHUTE",
+    "ITEM_PICKUP_UDJATEYE",
+    "ITEM_PICKUP_KAPALA",
+    "ITEM_PICKUP_HEDJET",
+    "ITEM_PICKUP_CROWN",
+    "ITEM_PICKUP_EGGPLANTCROWN",
+    "ITEM_PICKUP_TRUECROWN",
+    "ITEM_PICKUP_ANKH",
+    "ITEM_PICKUP_TABLETOFDESTINY",
+    "ITEM_PICKUP_SKELETON_KEY",
+    "ITEM_PICKUP_PLAYERBAG"
 })
 
 local RANGED_WEAPONS = type_list({
@@ -196,16 +226,6 @@ local RANGED_WEAPONS = type_list({
 
 local NEVER_USE_WEAPONS = type_list({
     "ITEM_TELEPORTER",
-    "ITEM_JETPACK",
-    "ITEM_HOVERPACK",
-    "ITEM_POWERPACK",
-    "ITEM_TELEPORTER_BACKPACK",
-    "ITEM_CAPE",
-    "ITEM_PICKUP_CLIMBINGGLOVES",
-    "ITEM_PICKUP_SPRINGSHOES",
-    "ITEM_PICKUP_SPIKESHOES",
-    "ITEM_PICKUP_PASTE",
-    "ITEM_PICKUP_KAPALA",
     "ITEM_PLASMACANNON",
     "ITEM_SCEPTER",
     "ITEM_CLONEGUN",
@@ -281,6 +301,10 @@ local EXPLOSIVE_PACK_SET = to_set(EXPLOSIVE_PACKS)
 local CARRIABLE_EQUIPMENT_SET = to_set(CARRIABLE_EQUIPMENT)
 local RANGED_WEAPON_SET = to_set(RANGED_WEAPONS)
 local NEVER_USE_WEAPON_SET = to_set(NEVER_USE_WEAPONS)
+-- Every cargo type must remain inert, including newly added pickup supplies.
+for _, entity_type in ipairs(CARRIABLE_EQUIPMENT) do
+    NEVER_USE_WEAPON_SET[entity_type] = true
+end
 local FRIENDLY_NPC_SET = to_set(FRIENDLY_NPCS)
 local HOUYI_BOW_TYPE = ENT_TYPE.ITEM_HOUYIBOW
 
@@ -640,6 +664,13 @@ local function remember_equipment_cargo(hired_hand)
         local cargo = data.equipment_cargo or {}
         cargo.type = equipment.type.id
         cargo.metadata = equipment:get_metadata()
+        -- Player bags have variable contents beyond generic item metadata.
+        cargo.bombs = nil
+        cargo.ropes = nil
+        if cargo.type == ENT_TYPE.ITEM_PICKUP_PLAYERBAG then
+            cargo.bombs = equipment.bombs
+            cargo.ropes = equipment.ropes
+        end
         data.equipment_cargo = cargo
     elseif hired_hand.health > 0 and equipment == nil
         and (hired_hand.state == CHAR_STATE.ENTERING
@@ -665,7 +696,9 @@ local function position_equipment_in_hands(equipment)
 end
 
 local function carry_equipment_by_hand(hired_hand, equipment)
-    if hired_hand.holding_uid >= 0 or not equipment_is_safe_cargo(equipment) then
+    if hired_hand.health <= 0 or hired_hand.holding_uid >= 0
+        or not equipment_is_safe_cargo(equipment)
+        or (equipment.overlay ~= nil and equipment.overlay ~= hired_hand) then
         return false
     end
 
@@ -677,6 +710,17 @@ local function carry_equipment_by_hand(hired_hand, equipment)
     remember_equipment_cargo(hired_hand)
     debug_decision(hired_hand, "carrying spare equipment without equipping it")
     return true
+end
+
+local function apply_cargo_contents(equipment, cargo)
+    if equipment.type.id == ENT_TYPE.ITEM_PICKUP_PLAYERBAG then
+        if cargo.bombs ~= nil then
+            equipment.bombs = cargo.bombs
+        end
+        if cargo.ropes ~= nil then
+            equipment.ropes = cargo.ropes
+        end
+    end
 end
 
 local function restore_equipment_cargo(hired_hand)
@@ -695,6 +739,7 @@ local function restore_equipment_cargo(hired_hand)
     -- attachment, so only normalize its hand offsets in that case.
     local held = held_item(hired_hand)
     if held ~= nil and held.type.id == cargo.type then
+        apply_cargo_contents(held, cargo)
         position_equipment_in_hands(held)
         remember_equipment_cargo(hired_hand)
         return
@@ -717,6 +762,7 @@ local function restore_equipment_cargo(hired_hand)
         end
         equipment:apply_metadata(cargo.metadata)
     end
+    apply_cargo_contents(equipment, cargo)
 
     if options.carry_equipment_packs and hired_hand.holding_uid < 0 then
         carry_equipment_by_hand(hired_hand, equipment)
@@ -1176,14 +1222,41 @@ set_post_entity_spawn(function(entity)
     hook_hired_hand(entity)
 end, SPAWN_TYPE.ANY, MASK.PLAYER, ENT_TYPE.CHAR_HIREDHAND)
 
+local function hook_cargo_item(item)
+    if item == nil or hooked_cargo_items[item.uid] then
+        return
+    end
+    hooked_cargo_items[item.uid] = true
+    -- Many supplies grant their effect on overlap, without calling pick_up.
+    -- Intercept that path as well, so they remain physical cargo for the player.
+    item:set_pre_on_collision2(function(self, other)
+        if options.carry_equipment_packs and other ~= nil
+            and other.type.id == ENT_TYPE.CHAR_HIREDHAND then
+            cautious_pick_up(other, self)
+            return true
+        end
+        return false
+    end)
+end
+
+set_post_entity_spawn(hook_cargo_item, SPAWN_TYPE.ANY, MASK.ITEM,
+    table.unpack(CARRIABLE_EQUIPMENT))
+
 local function hook_existing_hired_hands()
     for _, uid in ipairs(get_entities_by_type(ENT_TYPE.CHAR_HIREDHAND)) do
         hook_hired_hand(get_entity(uid))
     end
 end
 
+local function hook_existing_cargo()
+    for _, uid in ipairs(get_entities_by_type(table.unpack(CARRIABLE_EQUIPMENT))) do
+        hook_cargo_item(get_entity(uid))
+    end
+end
+
 set_callback(function()
     hooked_hired_hands = {}
+    hooked_cargo_items = {}
     last_debug_frame = {}
 end, ON.PRE_LEVEL_GENERATION)
 
@@ -1209,3 +1282,4 @@ end, ON.POST_LEVEL_GENERATION)
 
 -- Also supports enabling/reloading the script in the middle of a level.
 hook_existing_hired_hands()
+hook_existing_cargo()

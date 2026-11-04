@@ -2,7 +2,25 @@
 
 `Cautious Hired Hands` is a Playlunky/Overlunky Lua mod for Spelunky 2. It keeps the game's normal Hired Hand AI and adds a last-moment safety filter to its decisions.
 
-## What version 0.6 does
+## What version 0.7 does
+
+Version 0.7 expands the cargo slot from 10 to **39 item types**, including all 33 `ITEM_PICKUP_*` types in the current API:
+
+| Group | Items carried without using or collecting them |
+|---|---|
+| Back equipment | Jetpack, hoverpack, powerpack, teleporter backpack, yellow cape, Vlad's Cape |
+| Equipment and quest pickups | Spectacles, climbing gloves, pitcher's mitt, spring shoes, spike shoes, paste, compass, special compass, parachute, Udjat Eye, Kapala, Hedjet, crown, eggplant crown, true crown, Ankh, Tablet of Destiny, skeleton key |
+| Supplies | Single rope, rope pile, bomb bag, bomb box, 12-bag, 24-bag, player bag |
+| Food and temporary buffs | Royal jelly, cooked turkey, giant food, elixir, clover |
+| Other pickups | Torn journal page, journal, seeded-run unlocker |
+
+Automatic overlap collection is intercepted as well as normal pickup, so supplies remain physical items for a human player to collect. Player bags retain their bomb and rope counts across exits. Every cargo type is protected against being thrown or activated by the Hired Hand.
+
+The option is now labeled **Carry spare items (experimental)**; its saved setting is unchanged. Normal weapons and other items the vanilla AI already handles keep their existing behavior. The existing dangerous-pickup and Hou Yi's Bow options still apply, and unpaid shop items are left alone. Cargo support covers loose pickups and wearable items, rather than equipped effect entities, shop display placeholders, projectiles, or traps.
+
+Automated checks cover all 39 types through pickup, automatic overlap, and repeated exits, plus shop/fire checks, occupied hands, native transfers, and option behavior. Windows/Playlunky gameplay testing remains pending.
+
+## Exit persistence
 
 Version 0.6 fixes spare equipment disappearing when a Hired Hand enters the end-of-level exit:
 
@@ -13,7 +31,7 @@ Version 0.6 fixes spare equipment disappearing when a Hired Hand enters the end-
 - If another mod fills the companion's hands, or cargo handling is disabled during the transition, the restored equipment is left beside it.
 - **Kapalas** join the existing cargo list and remain physical pickups for a player to collect.
 
-The automated Lua scenarios cover all ten cargo types, repeated exits, the transition tunnel, multiple companions, native transfers, and dropped/burning cargo. A Windows/Playlunky in-game exit test is still required; see `TESTING_NOTES.md`.
+The automated Lua scenarios cover all cargo types, repeated exits, the transition tunnel, multiple companions, native transfers, and dropped/burning cargo. A Windows/Playlunky in-game exit test is still required; see `TESTING_NOTES.md`.
 
 ## Following and cargo behavior
 
@@ -27,18 +45,18 @@ Version 0.5 adds persistent, safety-filtered catch-up behavior:
 
 The feature is enabled by **Persistent safe follow**. The default **Catch-up distance** is 8 tiles; lower it for a closer companion or raise it to give the player more personal space.
 
-Version 0.4's experimental cargo slot for co-op duplicate equipment remains included:
+The experimental cargo slot for co-op duplicate equipment and supplies:
 
-- An empty-handed Hired Hand can collect a jetpack, hoverpack, powerpack, teleporter backpack, yellow cape, climbing gloves, spring shoes, spike shoes, paste, or Kapala within about 1.35 tiles.
+- An empty-handed Hired Hand can take a supported item from the table above within about 1.35 tiles.
 - The equipment is attached to its hands as inert cargo instead of being worn or added to its powerups, so the Hired Hand does not gain the item effect.
-- Normal pickup behavior is skipped for these items, preventing gloves, boots, and paste from disappearing into the Hired Hand's inventory.
+- Normal pickup and automatic collection are skipped for these items, preventing powerups and supplies from disappearing into the Hired Hand's inventory.
 - Each Hired Hand carries only one cargo item and keeps whatever it already holds.
 - It will not throw carried equipment, steal it from a shop, pick up a burning item, or keep holding equipment that catches fire.
 - A burning carried pack is dropped and treated like a live explosive so the Hired Hand attempts to retreat.
 
-The feature is enabled by **Carry spare equipment (experimental)**. Turn that option off if an item appears in the wrong position or conflicts with another behavior mod.
+The feature is enabled by **Carry spare items (experimental)**. Turn that option off if an item appears in the wrong position or conflicts with another behavior mod.
 
-The larger cargo list has negligible performance cost: the mod still makes one small nearby-item query only while a Hired Hand's hands are empty.
+The nearby-item scan still runs only while a Hired Hand's hands are empty.
 
 The existing safety layer still:
 
@@ -98,7 +116,7 @@ For a quick controlled test, spawn or find one Hired Hand and try these situatio
 10. Give it a pet while you stand nearby; it should refuse to throw the pet.
 11. Put a skeleton or loose body between it and your character, slightly off the direct firing line; it should avoid an attack that could knock the body into you.
 12. Let it approach a basic stompable enemy on safe ground; it should usually jump toward the enemy instead of whipping or throwing.
-13. Drop a pack, yellow cape, climbing gloves, either pair of shoes, paste, or Kapala beside an empty-handed Hired Hand; it should carry the item visibly without equipping or collecting it.
+13. Drop a pack, either cape, a powerup, quest pickup, food, or supplies beside an empty-handed Hired Hand; it should carry the item visibly without equipping or collecting it.
 14. Jump and fight after it takes the equipment; the item should stay inert, and the Hired Hand should not throw it during combat.
 15. Let it enter the exit before you while carrying spare equipment; check that the item returns to its hands in the next level. Repeat with a Kapala and then with two Hired Hands carrying different items, across at least two exits.
 16. Finish a level with it; it should transfer normally and continue using the safety layer.
@@ -117,7 +135,7 @@ The shipped settings favor survival over speed. If the Hired Hand hesitates too 
 - Turn off **Prevent collateral damage** if the wider throw and knockback exclusion zone feels too restrictive.
 - Turn off **Faster reactions** to retain the vanilla idle pauses and the original shorter projectile scan.
 - Raise **Catch-up distance** if you want more space, lower it if the Hired Hand still gets left behind, or turn off **Persistent safe follow** to retain vanilla pursuit behavior.
-- Turn off **Carry spare equipment (experimental)** to leave equipment handling entirely to the vanilla game.
+- Turn off **Carry spare items (experimental)** to leave equipment and supply handling entirely to the vanilla game.
 
 ## Compatibility target
 

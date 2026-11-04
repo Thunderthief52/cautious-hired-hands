@@ -52,7 +52,21 @@ state = {screen = SCREEN.LEVEL, screen_next = SCREEN.TRANSITION}
 options = {}
 players = {}
 
-local spawn_callback = nil
+local spawn_callbacks = {}
+local function spawn_callback(entity)
+    for _, hook in ipairs(spawn_callbacks) do
+        local matches_type = #hook.types == 0
+        for _, entity_type in ipairs(hook.types) do
+            if entity.type.id == entity_type then
+                matches_type = true
+                break
+            end
+        end
+        if matches_type and entity.type.search_flags & hook.mask ~= 0 then
+            hook.callback(entity)
+        end
+    end
+end
 local callbacks = {}
 local entities = {}
 local scenario = {support = true, lava = false}
@@ -66,8 +80,8 @@ function register_option_int(name, _, _, value)
     options[name] = value
 end
 
-function set_post_entity_spawn(callback)
-    spawn_callback = callback
+function set_post_entity_spawn(callback, _, mask, ...)
+    spawn_callbacks[#spawn_callbacks + 1] = {callback = callback, mask = mask, types = {...}}
 end
 
 function set_callback(callback, event)
@@ -146,11 +160,15 @@ function drop(who_uid, what_uid)
     carrier.holding_uid = -1
 end
 
-function get_entities_by_type(entity_type)
+function get_entities_by_type(...)
+    local entity_types = {...}
     local result = {}
     for uid, entity in pairs(entities) do
-        if entity.type.id == entity_type then
-            result[#result + 1] = uid
+        for _, entity_type in ipairs(entity_types) do
+            if entity.type.id == entity_type then
+                result[#result + 1] = uid
+                break
+            end
         end
     end
     return result
@@ -230,6 +248,10 @@ function entity_methods:set_post_update_state_machine(callback)
     self.post_update_callback = callback
 end
 
+function entity_methods:set_pre_on_collision2(callback)
+    self.collision_callback = callback
+end
+
 function entity_methods:get_metadata()
     return self.metadata or 0
 end
@@ -277,6 +299,7 @@ local function new_entity(uid, type_name, x, y)
         worn_backitem_uid = -1
     }, {__index = entity_methods})
     entities[uid] = entity
+    spawn_callback(entity)
     return entity
 end
 
@@ -319,7 +342,19 @@ local function assert_mask(value, mask, expected, label)
     assert(actual == expected, label .. ": expected " .. tostring(expected) .. ", got " .. tostring(actual))
 end
 
-dofile("main.lua")
+-- Also supports the original workspace layout with CautiousHiredHands/main.lua.
+local mod_path = "main.lua"
+local mod_file = io.open(mod_path, "r")
+if mod_file ~= nil then
+    mod_file:close()
+else
+    mod_path = "CautiousHiredHands/main.lua"
+end
+local existing_hand = new_entity(10, "CHAR_HIREDHAND", 0, 0)
+local existing_pickup = new_entity(11, "ITEM_PICKUP_ANKH", 0.5, 0)
+dofile(mod_path)
+assert(existing_hand.process_input_callback ~= nil, "existing HH was not hooked on script load")
+assert(existing_pickup.collision_callback ~= nil, "existing pickup was not hooked on script load")
 
 -- Friendly-fire prevention.
 reset_world()
@@ -625,17 +660,36 @@ local function transition_party(companions, native_mode, skip_tunnel, arrival_se
     return new_leader, arrived
 end
 
+local pickup_cargo_types = {
+    "ITEM_PICKUP_TORNJOURNALPAGE", "ITEM_PICKUP_JOURNAL", "ITEM_PICKUP_ROPE",
+    "ITEM_PICKUP_ROPEPILE", "ITEM_PICKUP_BOMBBAG", "ITEM_PICKUP_BOMBBOX",
+    "ITEM_PICKUP_12BAG", "ITEM_PICKUP_24BAG", "ITEM_PICKUP_ROYALJELLY",
+    "ITEM_PICKUP_COOKEDTURKEY", "ITEM_PICKUP_GIANTFOOD", "ITEM_PICKUP_ELIXIR",
+    "ITEM_PICKUP_CLOVER", "ITEM_PICKUP_SEEDEDRUNSUNLOCKER", "ITEM_PICKUP_SPECTACLES",
+    "ITEM_PICKUP_CLIMBINGGLOVES", "ITEM_PICKUP_PITCHERSMITT", "ITEM_PICKUP_SPRINGSHOES",
+    "ITEM_PICKUP_SPIKESHOES", "ITEM_PICKUP_PASTE", "ITEM_PICKUP_COMPASS",
+    "ITEM_PICKUP_SPECIALCOMPASS", "ITEM_PICKUP_PARACHUTE", "ITEM_PICKUP_UDJATEYE",
+    "ITEM_PICKUP_KAPALA", "ITEM_PICKUP_HEDJET", "ITEM_PICKUP_CROWN",
+    "ITEM_PICKUP_EGGPLANTCROWN", "ITEM_PICKUP_TRUECROWN", "ITEM_PICKUP_ANKH",
+    "ITEM_PICKUP_TABLETOFDESTINY", "ITEM_PICKUP_SKELETON_KEY", "ITEM_PICKUP_PLAYERBAG"
+}
 local cargo_types = {
     "ITEM_JETPACK", "ITEM_HOVERPACK", "ITEM_POWERPACK", "ITEM_TELEPORTER_BACKPACK",
-    "ITEM_CAPE", "ITEM_PICKUP_CLIMBINGGLOVES", "ITEM_PICKUP_SPRINGSHOES",
-    "ITEM_PICKUP_SPIKESHOES", "ITEM_PICKUP_PASTE", "ITEM_PICKUP_KAPALA"
+    "ITEM_CAPE", "ITEM_VLADS_CAPE"
 }
+for _, pickup_type in ipairs(pickup_cargo_types) do
+    cargo_types[#cargo_types + 1] = pickup_type
+end
 local transition_scenarios = 0
 for _, cargo_type in ipairs(cargo_types) do
     reset_world()
     _, hired_hand = new_party()
     local item = new_entity(3, cargo_type, 0.8, 0)
     item.metadata = 37
+    if cargo_type == "ITEM_PICKUP_PLAYERBAG" then
+        item.bombs = 13
+        item.ropes = 7
+    end
     hired_hand.process_input_callback(hired_hand)
     assert(hired_hand.holding_uid == item.uid, cargo_type .. " was not taken as inert cargo")
     -- The door can clear holding_uid before the screen changes. Preserve the
@@ -652,6 +706,9 @@ for _, cargo_type in ipairs(cargo_types) do
     assert(restored.overlay == arrived[1], "restored cargo was not attached to its companion")
     assert(restored:get_metadata() == 37, "cargo metadata was lost")
     assert(worn_backitem(arrived[1].uid) == -1, "restored cargo was equipped")
+    if cargo_type == "ITEM_PICKUP_PLAYERBAG" then
+        assert(restored.bombs == 13 and restored.ropes == 7, "player bag contents were lost")
+    end
     local before_repeat = spawned_cargo_count
     run_callback(ON.POST_LEVEL_GENERATION)
     assert(spawned_cargo_count == before_repeat, "repeated restore duplicated cargo")
@@ -660,6 +717,66 @@ for _, cargo_type in ipairs(cargo_types) do
         "cargo was lost on a second, direct level transition")
     transition_scenarios = transition_scenarios + 1
 end
+
+-- Automatic overlap collection must become cargo before granting any effect.
+-- Human players can still collect these items, and HHs cannot steal attachments.
+for _, cargo_type in ipairs(cargo_types) do
+    reset_world()
+    leader, hired_hand = new_party()
+    local item = new_entity(3, cargo_type, 0.5, 0)
+    assert(item.collision_callback ~= nil, cargo_type .. " has no automatic collection hook")
+    assert(item.collision_callback(item, hired_hand) == true, "HH overlap collected " .. cargo_type)
+    assert(hired_hand.holding_uid == item.uid and item.overlay == hired_hand,
+        "overlap did not attach " .. cargo_type .. " as cargo")
+    assert(item.collision_callback(item, leader) == false, "human collection was blocked")
+    local thief = new_entity(4, "CHAR_HIREDHAND", 0.5, 0)
+    assert(item.collision_callback(item, thief) == true, "another HH could collect carried cargo")
+    assert(item.overlay == hired_hand and thief.holding_uid == -1, "attached cargo was stolen")
+    hired_hand.input.buttons_gameplay = INPUTS.WHIP
+    hired_hand.process_input_callback(hired_hand)
+    assert_mask(hired_hand.input.buttons_gameplay, INPUTS.WHIP, false, cargo_type .. " cargo throw")
+end
+
+-- Supplies cannot bypass the cargo limit or shop/fire checks through overlap.
+reset_world()
+leader, hired_hand = new_party()
+local carried_rock = new_entity(3, "ITEM_ROCK", 0, 0)
+carried_rock.overlay = hired_hand
+hired_hand.holding_uid = carried_rock.uid
+local bomb_bag = new_entity(4, "ITEM_PICKUP_BOMBBAG", 0.5, 0)
+assert(bomb_bag.collision_callback(bomb_bag, hired_hand) == true, "occupied HH consumed supplies")
+assert(hired_hand.holding_uid == carried_rock.uid and bomb_bag.overlay == nil,
+    "supply overlap replaced an existing held item")
+drop(hired_hand.uid, carried_rock.uid)
+bomb_bag.flags = bomb_bag.flags | (1 << (ENT_FLAG.SHOP_ITEM - 1))
+assert(bomb_bag.collision_callback(bomb_bag, hired_hand) == true, "unpaid supply overlap was not blocked")
+assert(hired_hand.holding_uid == -1, "unpaid supply was attached as cargo")
+bomb_bag.flags = bomb_bag.flags & (~(1 << (ENT_FLAG.SHOP_ITEM - 1)))
+bomb_bag.onfire_effect_timer = 10
+assert(bomb_bag.collision_callback(bomb_bag, hired_hand) == true, "burning supply overlap was not blocked")
+assert(hired_hand.holding_uid == -1, "burning supply was attached as cargo")
+options.carry_equipment_packs = false
+assert(bomb_bag.collision_callback(bomb_bag, hired_hand) == false,
+    "disabled cargo handling still blocked vanilla collection")
+options.carry_equipment_packs = true
+
+-- Cargo expansion leaves existing combat and quest protection options intact.
+reset_world()
+_, hired_hand = new_party()
+local shotgun = new_entity(3, "ITEM_SHOTGUN", 0.5, 0)
+assert(hired_hand.pick_up_callback(hired_hand, shotgun) == false, "ordinary weapon pickup was replaced")
+local special_bow = new_entity(4, "ITEM_HOUYIBOW", 0.5, 0)
+assert(hired_hand.pick_up_callback(hired_hand, special_bow) == true, "special bow protection was lost")
+options.protect_houyi_bow = false
+assert(hired_hand.pick_up_callback(hired_hand, special_bow) == false, "special bow option was ignored")
+options.protect_houyi_bow = true
+local plasma = new_entity(5, "ITEM_PLASMACANNON", 0.5, 0)
+assert(hired_hand.pick_up_callback(hired_hand, plasma) == true, "dangerous weapon protection was lost")
+options.restrict_dangerous_pickups = false
+assert(hired_hand.pick_up_callback(hired_hand, plasma) == false, "dangerous pickup option was ignored")
+options.restrict_dangerous_pickups = true
+local powerup_effect = new_entity(6, "ITEM_POWERUP_ANKH", 0.5, 0)
+assert(powerup_effect.collision_callback == nil, "equipped powerup effect was treated as loose cargo")
 
 -- Reuse native transfers; a pack already worn by the new HH becomes cargo.
 for _, mode in ipairs({"held", "worn"}) do
@@ -756,4 +873,5 @@ assert(hired_hand.holding_uid == -1, "cargo leaked into a new run")
 transition_scenarios = transition_scenarios + 1
 
 print("Cautious Hired Hands mock tests: all scenarios passed (including "
-    .. transition_scenarios .. " cargo transition scenarios)")
+    .. transition_scenarios .. " cargo transition scenarios and "
+    .. #cargo_types .. " automatic collection types)")

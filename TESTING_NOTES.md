@@ -2,6 +2,23 @@
 
 Use this file to record observations from the Windows PC. Exact rooms and short clips are especially helpful because procedural levels make AI bugs hard to reproduce.
 
+## Version 0.7 expanded cargo
+
+Automated checks pass for all 39 cargo types, including 48 transition scenarios and automatic collection for every type. These are Lua API simulations; the in-game results below remain pending.
+
+| Build | Situation | Expected | Actual |
+|---|---|---|---|
+| 0.7.0 | Vlad's Cape beside an empty-handed HH | Hand-carried without being worn; survives exits | Pending PC test |
+| 0.7.0 | Spectacles, mitt, compasses, parachute | Cargo without granting their effect | Pending PC test |
+| 0.7.0 | Udjat Eye, crowns, Ankh, Tablet, skeleton key | Remain physical pickups through exits | Pending PC test |
+| 0.7.0 | Bomb bags/boxes and rope supplies | Cargo without adding bombs or ropes to HH | Pending PC test |
+| 0.7.0 | Jelly, turkey, giant food, elixir, clover | Cargo without healing or granting buffs to HH | Pending PC test |
+| 0.7.0 | Player bag containing known bomb/rope counts | Same counts when a human collects it after an exit | Pending PC test |
+| 0.7.0 | Supplies overlap an HH with occupied hands | Supplies remain loose and unconsumed | Pending PC test |
+| 0.7.0 | Human touches hand-carried supplies | Human can collect normally | Pending PC test |
+| 0.7.0 | Unpaid supplies, burning cargo, another character's held item | Not taken | Pending PC test |
+| 0.7.0 | Ordinary weapon, protected bow, restricted weapon | Existing pickup/protection options still apply | Pending PC test |
+
 ## Version 0.6 exit regression
 
 Automated Lua checks pass for the existing safety/follow behaviors and 19 cargo-transition scenarios. The checks reproduced a missing jetpack at an exit before the fix. The in-game results below have not yet been verified on Windows.
