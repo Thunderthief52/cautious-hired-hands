@@ -2,6 +2,24 @@
 
 Use this file to record observations from the Windows PC. Exact rooms and short clips are especially helpful because procedural levels make AI bugs hard to reproduce.
 
+## Version 0.6 exit regression
+
+Automated Lua checks pass for the existing safety/follow behaviors and 19 cargo-transition scenarios. The checks reproduced a missing jetpack at an exit before the fix. The in-game results below have not yet been verified on Windows.
+
+| Build | Situation | Expected | Actual |
+|---|---|---|---|
+| 0.6.0 | HH enters the exit before the player with a jetpack | Same HH holds one jetpack next level; it is not worn | Pending PC test |
+| 0.6.0 | Repeat with hoverpack, powerpack, teleporter backpack, and cape | Each item returns in the hands | Pending PC test |
+| 0.6.0 | HH takes a spare Kapala, then exits | Physical Kapala returns in hands without granting its effect | Pending PC test |
+| 0.6.0 | Repeat with gloves, both shoes, and paste | Pickup remains cargo next level | Pending PC test |
+| 0.6.0 | Cross two or more consecutive exits | Exactly one cargo item survives each exit | Pending PC test |
+| 0.6.0 | Two HHs carry different items | Each receives its own cargo | Pending PC test |
+| 0.6.0 | Drop cargo before the exit, or let its carrier die | No replacement appears | Pending PC test |
+| 0.6.0 | Pack starts burning before an exit | It is dropped and not recreated | Pending PC test |
+| 0.6.0 | Restart or return to camp | No equipment from the previous run appears | Pending PC test |
+
+## Earlier behavior checklist
+
 | Build | Level/seed | Situation | Expected | Actual | Debug message |
 |---|---|---|---|---|---|
 | 0.5.0 |  | Sprint away on safe flat ground | Renews pursuit and catches up |  |  |

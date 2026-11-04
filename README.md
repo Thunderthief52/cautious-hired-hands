@@ -2,7 +2,20 @@
 
 `Cautious Hired Hands` is a Playlunky/Overlunky Lua mod for Spelunky 2. It keeps the game's normal Hired Hand AI and adds a last-moment safety filter to its decisions.
 
-## What version 0.5 does
+## What version 0.6 does
+
+Version 0.6 fixes spare equipment disappearing when a Hired Hand enters the end-of-level exit:
+
+- Cargo is recorded on the companion using Overlunky's persistent `Entity.user_data`, including the item's transfer metadata.
+- The item returns to the same companion's hands after the next level is generated, even if the exit animation cleared its held-item pointer. The transition tunnel does not erase this record.
+- A pack the game already transferred is reused, preventing duplicates. If it arrived on the companion's back, it is moved back into its hands.
+- Dropped or burning cargo and dead companions do not produce replacement equipment. Different Hired Hands keep their own cargo, and new runs start without old cargo.
+- If another mod fills the companion's hands, or cargo handling is disabled during the transition, the restored equipment is left beside it.
+- **Kapalas** join the existing cargo list and remain physical pickups for a player to collect.
+
+The automated Lua scenarios cover all ten cargo types, repeated exits, the transition tunnel, multiple companions, native transfers, and dropped/burning cargo. A Windows/Playlunky in-game exit test is still required; see `TESTING_NOTES.md`.
+
+## Following and cargo behavior
 
 Version 0.5 adds persistent, safety-filtered catch-up behavior:
 
@@ -16,14 +29,14 @@ The feature is enabled by **Persistent safe follow**. The default **Catch-up dis
 
 Version 0.4's experimental cargo slot for co-op duplicate equipment remains included:
 
-- An empty-handed Hired Hand can collect a jetpack, hoverpack, powerpack, teleporter backpack, yellow cape, climbing gloves, spring shoes, spike shoes, or paste within about 1.35 tiles.
+- An empty-handed Hired Hand can collect a jetpack, hoverpack, powerpack, teleporter backpack, yellow cape, climbing gloves, spring shoes, spike shoes, paste, or Kapala within about 1.35 tiles.
 - The equipment is attached to its hands as inert cargo instead of being worn or added to its powerups, so the Hired Hand does not gain the item effect.
 - Normal pickup behavior is skipped for these items, preventing gloves, boots, and paste from disappearing into the Hired Hand's inventory.
 - Each Hired Hand carries only one cargo item and keeps whatever it already holds.
 - It will not throw carried equipment, steal it from a shop, pick up a burning item, or keep holding equipment that catches fire.
 - A burning carried pack is dropped and treated like a live explosive so the Hired Hand attempts to retreat.
 
-The feature is enabled by **Carry spare equipment (experimental)**. Turn that option off if an item appears in the wrong position, disappears during a level transition, or conflicts with another behavior mod.
+The feature is enabled by **Carry spare equipment (experimental)**. Turn that option off if an item appears in the wrong position or conflicts with another behavior mod.
 
 The larger cargo list has negligible performance cost: the mod still makes one small nearby-item query only while a Hired Hand's hands are empty.
 
@@ -48,7 +61,7 @@ This mod makes Hired Hands much more cautious, not invincible. It cannot plan an
 ## Install on the Windows PC
 
 1. Unzip `CautiousHiredHands.zip`.
-2. Put the resulting `CautiousHiredHands` folder in:
+2. Put the resulting `CautiousHiredHands` folder in the following location, replacing the old mod folder when updating:
 
    `Spelunky 2\Mods\Packs\`
 
@@ -85,9 +98,9 @@ For a quick controlled test, spawn or find one Hired Hand and try these situatio
 10. Give it a pet while you stand nearby; it should refuse to throw the pet.
 11. Put a skeleton or loose body between it and your character, slightly off the direct firing line; it should avoid an attack that could knock the body into you.
 12. Let it approach a basic stompable enemy on safe ground; it should usually jump toward the enemy instead of whipping or throwing.
-13. Drop a pack, yellow cape, climbing gloves, either pair of shoes, or paste beside an empty-handed Hired Hand; it should carry the item visibly without equipping or collecting it.
+13. Drop a pack, yellow cape, climbing gloves, either pair of shoes, paste, or Kapala beside an empty-handed Hired Hand; it should carry the item visibly without equipping or collecting it.
 14. Jump and fight after it takes the equipment; the item should stay inert, and the Hired Hand should not throw it during combat.
-15. Finish a level while it carries spare equipment; check that the item transfers and returns to its hands in the next level.
+15. Let it enter the exit before you while carrying spare equipment; check that the item returns to its hands in the next level. Repeat with a Kapala and then with two Hired Hands carrying different items, across at least two exits.
 16. Finish a level with it; it should transfer normally and continue using the safety layer.
 
 Turn on **Debug safety decisions** in the script options if a choice seems wrong. The console messages will say why an input was blocked. A screenshot/video plus those messages will make tuning much faster.
@@ -108,4 +121,8 @@ The shipped settings favor survival over speed. If the Hired Hand hesitates too 
 
 ## Compatibility target
 
-Written for the current Overlunky/Playlunky Lua API as of July 2026. The mod uses only safe-mode API calls and does not require `meta.unsafe`.
+Checked against the Overlunky/Playlunky Lua API in November 2026. Cargo persistence uses `Entity.user_data`, `ON.PRE_LOAD_SCREEN`, and `ON.POST_LEVEL_GENERATION`; the [API reference](https://spelunky-fyi.github.io/overlunky/#entity) describes when companion data is saved and restored. The mod uses only safe-mode API calls and does not require `meta.unsafe`.
+
+## Automated checks
+
+From the repository root, run `lua tests/mock_api.lua` with Lua 5.3 or newer. The test harness simulates the Overlunky companion-data lifecycle; it does not run Spelunky 2 or validate its rendering and native AI.

@@ -45,7 +45,9 @@ ENT_FLAG = {
     DEAD = 29
 }
 SPAWN_TYPE = {ANY = 0}
-ON = {PRE_LEVEL_GENERATION = 1, LEVEL = 2}
+ON = {PRE_LEVEL_GENERATION = 1, LEVEL = 2, PRE_LOAD_SCREEN = 3, POST_LEVEL_GENERATION = 4}
+SCREEN = {LEVEL = 12, TRANSITION = 13, CAMP = 11, DEATH = 14}
+state = {screen = SCREEN.LEVEL, screen_next = SCREEN.TRANSITION}
 
 options = {}
 players = {}
@@ -224,6 +226,18 @@ function entity_methods:set_post_pick_up(callback)
     self.post_pick_up_callback = callback
 end
 
+function entity_methods:set_post_update_state_machine(callback)
+    self.post_update_callback = callback
+end
+
+function entity_methods:get_metadata()
+    return self.metadata or 0
+end
+
+function entity_methods:apply_metadata(metadata)
+    self.metadata = metadata
+end
+
 local function new_entity(uid, type_name, x, y)
     local search_flags = MASK.ITEM
     if type_name:sub(1, 5) == "CHAR_" then
@@ -272,14 +286,28 @@ local function reset_world()
     scenario.support = true
     scenario.lava = false
     frame = frame + 100
+    state.screen = SCREEN.LEVEL
+    state.screen_next = SCREEN.TRANSITION
     if callbacks[ON.PRE_LEVEL_GENERATION] ~= nil then
         callbacks[ON.PRE_LEVEL_GENERATION]()
     end
 end
 
-local function new_party()
-    local leader = new_entity(1, "CHAR_ANA_SPELUNKY", 2, 0)
-    local hired_hand = new_entity(2, "CHAR_HIREDHAND", 0, 0)
+local next_spawn_uid = 1000
+local spawned_cargo_count = 0
+function spawn_entity(entity_type, x, y, layer, velocityx, velocityy)
+    next_spawn_uid = next_spawn_uid + 1
+    local entity = new_entity(next_spawn_uid, type_names[entity_type], x, y)
+    entity.layer = layer
+    entity.velocityx = velocityx
+    entity.velocityy = velocityy
+    spawned_cargo_count = spawned_cargo_count + 1
+    return entity.uid
+end
+
+local function new_party(leader_uid, hired_hand_uid)
+    local leader = new_entity(leader_uid or 1, "CHAR_ANA_SPELUNKY", 2, 0)
+    local hired_hand = new_entity(hired_hand_uid or 2, "CHAR_HIREDHAND", 0, 0)
     hired_hand.linked_companion_parent = leader.uid
     players = {leader}
     spawn_callback(hired_hand)
@@ -291,7 +319,7 @@ local function assert_mask(value, mask, expected, label)
     assert(actual == expected, label .. ": expected " .. tostring(expected) .. ", got " .. tostring(actual))
 end
 
-dofile("CautiousHiredHands/main.lua")
+dofile("main.lua")
 
 -- Friendly-fire prevention.
 reset_world()
@@ -532,4 +560,200 @@ hired_hand.process_input_callback(hired_hand)
 assert(hired_hand.ai.target_uid == -1, "cross-layer leader replaced the AI target")
 assert_mask(hired_hand.input.buttons_gameplay, INPUTS.LEFT, true, "cross-layer follow input")
 
-print("Cautious Hired Hands mock tests: all scenarios passed")
+-- Model Overlunky's actual lifecycle: companion user_data follows the party
+-- chain, survives the tunnel, and is loaded AFTER spawn hooks but BEFORE
+-- POST_LEVEL_GENERATION. Native cargo can be lost, held, or worn on arrival.
+local function run_callback(event)
+    if callbacks[event] ~= nil then
+        callbacks[event]()
+    end
+end
+
+local function transition_party(companions, native_mode, skip_tunnel, arrival_setup)
+    run_callback(ON.PRE_LOAD_SCREEN)
+    local saved = {}
+    for i, companion in ipairs(companions) do
+        saved[i] = companion.user_data
+    end
+    local before_tunnel = spawned_cargo_count
+    if not skip_tunnel then
+        reset_world()
+        state.screen = SCREEN.TRANSITION
+        local tunnel_parent = new_entity(20, "CHAR_ANA_SPELUNKY", 0, 0)
+        for i = 1, #companions do
+            local companion = new_entity(20 + i, "CHAR_HIREDHAND", i, 0)
+            companion.linked_companion_parent = tunnel_parent.uid
+            spawn_callback(companion)
+            companion.user_data = saved[i]
+            if companion.post_update_callback ~= nil then
+                companion.post_update_callback(companion)
+            end
+            tunnel_parent = companion
+        end
+        run_callback(ON.POST_LEVEL_GENERATION)
+        assert(spawned_cargo_count == before_tunnel, "cargo was spawned in the transition tunnel")
+    end
+
+    reset_world()
+    local new_leader = new_entity(30, "CHAR_ANA_SPELUNKY", 2, 0)
+    players = {new_leader}
+    local parent = new_leader
+    local arrived = {}
+    for i, previous in ipairs(companions) do
+        local companion = new_entity(30 + i, "CHAR_HIREDHAND", i, 0)
+        companion.linked_companion_parent = parent.uid
+        spawn_callback(companion)
+        companion.user_data = saved[i]
+        if native_mode ~= nil then
+            local old_item = previous.test_cargo
+            local item = new_entity(100 + i, type_names[old_item.type.id], 0, 0)
+            item.overlay = companion
+            if native_mode == "worn" then
+                companion.worn_backitem_uid = item.uid
+            else
+                companion.holding_uid = item.uid
+            end
+        end
+        arrived[i] = companion
+        parent = companion
+    end
+    if arrival_setup ~= nil then
+        arrival_setup(arrived)
+    end
+    run_callback(ON.POST_LEVEL_GENERATION)
+    run_callback(ON.LEVEL)
+    return new_leader, arrived
+end
+
+local cargo_types = {
+    "ITEM_JETPACK", "ITEM_HOVERPACK", "ITEM_POWERPACK", "ITEM_TELEPORTER_BACKPACK",
+    "ITEM_CAPE", "ITEM_PICKUP_CLIMBINGGLOVES", "ITEM_PICKUP_SPRINGSHOES",
+    "ITEM_PICKUP_SPIKESHOES", "ITEM_PICKUP_PASTE", "ITEM_PICKUP_KAPALA"
+}
+local transition_scenarios = 0
+for _, cargo_type in ipairs(cargo_types) do
+    reset_world()
+    _, hired_hand = new_party()
+    local item = new_entity(3, cargo_type, 0.8, 0)
+    item.metadata = 37
+    hired_hand.process_input_callback(hired_hand)
+    assert(hired_hand.holding_uid == item.uid, cargo_type .. " was not taken as inert cargo")
+    -- The door can clear holding_uid before the screen changes. Preserve the
+    -- last real cargo while entering, without rescuing deliberately dropped items.
+    hired_hand.state = CHAR_STATE.ENTERING
+    hired_hand.holding_uid = -1
+    if hired_hand.post_update_callback ~= nil then
+        hired_hand.post_update_callback(hired_hand)
+    end
+    local _, arrived = transition_party({hired_hand})
+    local restored = get_entity(arrived[1].holding_uid)
+    assert(restored ~= nil, cargo_type .. " was lost at the exit door")
+    assert(restored.type.id == ENT_TYPE[cargo_type], "wrong cargo type after transition")
+    assert(restored.overlay == arrived[1], "restored cargo was not attached to its companion")
+    assert(restored:get_metadata() == 37, "cargo metadata was lost")
+    assert(worn_backitem(arrived[1].uid) == -1, "restored cargo was equipped")
+    local before_repeat = spawned_cargo_count
+    run_callback(ON.POST_LEVEL_GENERATION)
+    assert(spawned_cargo_count == before_repeat, "repeated restore duplicated cargo")
+    local _, next_arrived = transition_party(arrived, nil, true)
+    assert(get_entity(next_arrived[1].holding_uid).type.id == ENT_TYPE[cargo_type],
+        "cargo was lost on a second, direct level transition")
+    transition_scenarios = transition_scenarios + 1
+end
+
+-- Reuse native transfers; a pack already worn by the new HH becomes cargo.
+for _, mode in ipairs({"held", "worn"}) do
+    reset_world()
+    _, hired_hand = new_party()
+    local item = new_entity(3, "ITEM_JETPACK", 0.8, 0)
+    hired_hand.process_input_callback(hired_hand)
+    hired_hand.test_cargo = item
+    local before = spawned_cargo_count
+    local _, arrived = transition_party({hired_hand}, mode)
+    assert(arrived[1].holding_uid == 101, "native " .. mode .. " pack was not reused")
+    assert(worn_backitem(arrived[1].uid) == -1, "native transferred pack remained worn")
+    assert(spawned_cargo_count == before, "native transferred cargo was duplicated")
+    transition_scenarios = transition_scenarios + 1
+end
+
+-- Different cargo stays with each link in a multi-companion party.
+reset_world()
+_, hired_hand = new_party()
+local first_item = new_entity(3, "ITEM_JETPACK", 0.5, 0)
+hired_hand.process_input_callback(hired_hand)
+local second_hand = new_entity(4, "CHAR_HIREDHAND", 4, 0)
+second_hand.linked_companion_parent = hired_hand.uid
+spawn_callback(second_hand)
+local second_item = new_entity(5, "ITEM_PICKUP_KAPALA", 4.5, 0)
+second_hand.process_input_callback(second_hand)
+local _, pair = transition_party({hired_hand, second_hand})
+assert(get_entity(pair[1].holding_uid).type.id == first_item.type.id, "first companion got the wrong cargo")
+assert(get_entity(pair[2].holding_uid).type.id == second_item.type.id, "second companion got the wrong cargo")
+transition_scenarios = transition_scenarios + 1
+
+-- Preserve an unrelated item supplied by another mod and leave cargo nearby.
+reset_world()
+_, hired_hand = new_party()
+local busy_cargo = new_entity(3, "ITEM_HOVERPACK", 0.5, 0)
+hired_hand.process_input_callback(hired_hand)
+local _, busy_arrived = transition_party({hired_hand}, nil, false, function(arrived)
+    local rock = new_entity(200, "ITEM_ROCK", 0, 0)
+    rock.overlay = arrived[1]
+    arrived[1].holding_uid = rock.uid
+    arrived[1].layer = 1
+end)
+assert(busy_arrived[1].holding_uid == 200, "restoration replaced an unrelated held item")
+local loose = get_entities_by_type(ENT_TYPE.ITEM_HOVERPACK)
+assert(#loose == 1 and get_entity(loose[1]).overlay == nil, "occupied hands lost the restored cargo")
+assert(get_entity(loose[1]).layer == 1, "cargo restored on the wrong layer")
+local before_busy_repeat = spawned_cargo_count
+run_callback(ON.POST_LEVEL_GENERATION)
+assert(spawned_cargo_count == before_busy_repeat, "occupied hands duplicated restored cargo")
+transition_scenarios = transition_scenarios + 1
+
+-- Disabling cargo after pickup still preserves the item as a loose pickup.
+reset_world()
+_, hired_hand = new_party()
+local disabled_cargo = new_entity(3, "ITEM_PICKUP_KAPALA", 0.5, 0)
+hired_hand.process_input_callback(hired_hand)
+options.carry_equipment_packs = false
+local _, disabled_arrived = transition_party({hired_hand})
+assert(disabled_arrived[1].holding_uid == -1, "disabled cargo handling attached an item")
+local loose_kapalas = get_entities_by_type(ENT_TYPE.ITEM_PICKUP_KAPALA)
+assert(#loose_kapalas == 1 and get_entity(loose_kapalas[1]).overlay == nil,
+    "disabling cargo handling lost the Kapala")
+options.carry_equipment_packs = true
+transition_scenarios = transition_scenarios + 1
+
+-- Dropping, burning, or dying clears the saved cargo even without input.
+for _, reason in ipairs({"drop", "burn", "death"}) do
+    reset_world()
+    _, hired_hand = new_party()
+    local item = new_entity(3, "ITEM_POWERPACK", 0.5, 0)
+    hired_hand.process_input_callback(hired_hand)
+    if reason == "drop" then
+        drop(hired_hand.uid, item.uid)
+    elseif reason == "burn" then
+        item.explosion_trigger = true
+    else
+        hired_hand.health = 0
+    end
+    if hired_hand.post_update_callback ~= nil then
+        hired_hand.post_update_callback(hired_hand)
+    end
+    local before = spawned_cargo_count
+    local _, arrived = transition_party({hired_hand})
+    assert(arrived[1].holding_uid == -1, reason .. " resurrected old cargo")
+    assert(spawned_cargo_count == before, reason .. " duplicated old cargo")
+    transition_scenarios = transition_scenarios + 1
+end
+
+-- A new party with reused UIDs has no cargo from an earlier run.
+reset_world()
+_, hired_hand = new_party()
+run_callback(ON.POST_LEVEL_GENERATION)
+assert(hired_hand.holding_uid == -1, "cargo leaked into a new run")
+transition_scenarios = transition_scenarios + 1
+
+print("Cautious Hired Hands mock tests: all scenarios passed (including "
+    .. transition_scenarios .. " cargo transition scenarios)")
