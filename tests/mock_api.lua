@@ -232,6 +232,14 @@ function entity_methods:can_jump()
     return true
 end
 
+function entity_methods:detach(check_autokill)
+    assert(check_autokill == false, "cargo detach must preserve the item")
+    local position = self:get_absolute_position()
+    self.overlay = nil
+    self.x = position.x
+    self.y = position.y
+end
+
 function entity_methods:set_pre_process_input(callback)
     self.process_input_callback = callback
 end
@@ -872,6 +880,128 @@ run_callback(ON.POST_LEVEL_GENERATION)
 assert(hired_hand.holding_uid == -1, "cargo leaked into a new run")
 transition_scenarios = transition_scenarios + 1
 
+-- Knocked-down HHs must release every cargo type, even without input. No HH
+-- may take the released item during stun or the 3.5-second recovery grace.
+for _, cargo_type in ipairs(cargo_types) do
+    reset_world()
+    leader, hired_hand = new_party()
+    local item = new_entity(3, cargo_type, 0.5, 0)
+    hired_hand.process_input_callback(hired_hand)
+    local position = item:get_absolute_position()
+    hired_hand.stun_timer = 30
+    hired_hand.state = CHAR_STATE.STUNNED
+    hired_hand.input = nil
+    hired_hand.post_update_callback(hired_hand)
+    assert(hired_hand.holding_uid == -1 and item.overlay == nil,
+        cargo_type .. " was not released on knockdown")
+    assert(item.x == position.x and item.y == position.y, "released cargo moved to relative coordinates")
+    assert(hired_hand.user_data.equipment_cargo == nil, "released cargo remained in the exit snapshot")
+    local other_hand = new_entity(4, "CHAR_HIREDHAND", 0.5, 0)
+    item.collision_callback(item, hired_hand)
+    hired_hand.pick_up_callback(hired_hand, item)
+    item.collision_callback(item, other_hand)
+    assert(hired_hand.holding_uid == -1 and other_hand.holding_uid == -1,
+        "knockdown cargo was immediately reclaimed")
+    assert(item.collision_callback(item, leader) == false, "human collection of dropped cargo was blocked")
+
+    -- Remaining stunned longer than the grace cannot let another HH take it.
+    frame = frame + 600
+    item.collision_callback(item, other_hand)
+    assert(other_hand.holding_uid == -1, "another HH reclaimed cargo while its carrier was still stunned")
+    hired_hand.post_update_callback(hired_hand)
+    hired_hand.stun_timer = 0
+    hired_hand.state = CHAR_STATE.STANDING
+    hired_hand.input = {buttons_gameplay = 0}
+    frame = frame + 1
+    hired_hand.process_input_callback(hired_hand)
+    hired_hand.pick_up_callback(hired_hand, item)
+    item.collision_callback(item, other_hand)
+    assert(hired_hand.holding_uid == -1 and other_hand.holding_uid == -1,
+        "post-recovery grace was bypassed by a pickup path")
+    frame = frame + 208
+    hired_hand.process_input_callback(hired_hand)
+    assert(hired_hand.holding_uid == -1, "recovery grace ended before 3.5 seconds")
+    frame = frame + 1
+    hired_hand.process_input_callback(hired_hand)
+    assert(hired_hand.holding_uid == item.uid, "normal pickup did not resume after recovery grace")
+end
+
+-- Vanilla may already drop cargo, or clear only its holding pointer, before
+-- the mod sees the knockdown. Neither case may leave cargo stuck or reclaimed.
+for _, native_drop in ipairs({"dropped", "pointer_only"}) do
+    reset_world()
+    leader, hired_hand = new_party()
+    local item = new_entity(3, "ITEM_JETPACK", 0.5, 0)
+    hired_hand.process_input_callback(hired_hand)
+    if native_drop == "dropped" then
+        drop(hired_hand.uid, item.uid)
+    else
+        hired_hand.holding_uid = -1
+    end
+    hired_hand.stun_timer = 30
+    local other_hand = new_entity(4, "CHAR_HIREDHAND", 0.5, 0)
+    item.collision_callback(item, other_hand)
+    assert(other_hand.holding_uid == -1, "native drop was stolen before the carrier's update")
+    hired_hand.post_update_callback(hired_hand)
+    assert(item.overlay == nil and hired_hand.holding_uid == -1, "native knockdown left cargo attached")
+    local before = spawned_cargo_count
+    local _, arrived = transition_party({hired_hand})
+    assert(arrived[1].holding_uid == -1 and spawned_cargo_count == before,
+        "knockdown cargo was recreated at the next exit")
+end
+
+-- A human who has already taken dropped cargo keeps ownership.
+reset_world()
+leader, hired_hand = new_party()
+local recovered_item = new_entity(3, "ITEM_PICKUP_KAPALA", 0.5, 0)
+hired_hand.process_input_callback(hired_hand)
+drop(hired_hand.uid, recovered_item.uid)
+attach_entity(leader.uid, recovered_item.uid)
+leader.holding_uid = recovered_item.uid
+hired_hand.stun_timer = 30
+hired_hand.post_update_callback(hired_hand)
+assert(recovered_item.overlay == leader and leader.holding_uid == recovered_item.uid,
+    "knockdown handling detached a human's recovered item")
+
+-- Even without a stun flag, deliberately dropped cargo is not sucked back up.
+reset_world()
+_, hired_hand = new_party()
+local deliberate_drop = new_entity(3, "ITEM_HOVERPACK", 0.5, 0)
+hired_hand.process_input_callback(hired_hand)
+drop(hired_hand.uid, deliberate_drop.uid)
+hired_hand.post_update_callback(hired_hand)
+hired_hand.process_input_callback(hired_hand)
+assert(hired_hand.holding_uid == -1 and deliberate_drop.overlay == nil,
+    "deliberately dropped cargo was immediately reclaimed")
+
+-- Either knockdown signal is sufficient; ordinary weapons still use vanilla
+-- drop behavior instead of the special cargo attachment recovery.
+for _, signal in ipairs({"timer", "state", "dying", "dead"}) do
+    reset_world()
+    _, hired_hand = new_party()
+    local item = new_entity(3, "ITEM_PICKUP_ANKH", 0.5, 0)
+    if signal == "timer" then
+        hired_hand.stun_timer = 1
+    elseif signal == "state" then
+        hired_hand.state = CHAR_STATE.STUNNED
+    elseif signal == "dying" then
+        hired_hand.state = CHAR_STATE.DYING
+    else
+        hired_hand.health = 0
+    end
+    hired_hand.pick_up_callback(hired_hand, item)
+    item.collision_callback(item, hired_hand)
+    assert(item.overlay == nil and hired_hand.holding_uid == -1, signal .. " did not block cargo pickup")
+end
+reset_world()
+_, hired_hand = new_party()
+local ordinary_weapon = new_entity(3, "ITEM_SHOTGUN", 0.5, 0)
+attach_entity(hired_hand.uid, ordinary_weapon.uid)
+hired_hand.holding_uid = ordinary_weapon.uid
+hired_hand.stun_timer = 30
+hired_hand.post_update_callback(hired_hand)
+assert(hired_hand.holding_uid == ordinary_weapon.uid, "cargo recovery changed ordinary weapon handling")
+
 print("Cautious Hired Hands mock tests: all scenarios passed (including "
     .. transition_scenarios .. " cargo transition scenarios and "
-    .. #cargo_types .. " automatic collection types)")
+    .. #cargo_types .. " automatic collection types and " .. #cargo_types .. " knockdown recovery types)")

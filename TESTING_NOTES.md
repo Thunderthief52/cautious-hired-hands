@@ -2,6 +2,20 @@
 
 Use this file to record observations from the Windows PC. Exact rooms and short clips are especially helpful because procedural levels make AI bugs hard to reproduce.
 
+## Version 0.7.1 cargo recovery
+
+The regression reproduced a jetpack staying attached after knockdown in 0.7.0. Automated checks now cover release and recovery for all 39 cargo types, along with the existing 48 transition scenarios and automatic-collection checks. The grace is exactly 210 updates (3.5 seconds at 60 Hz), refreshed while stunned. PC results below remain pending.
+
+| Build | Situation | Expected | Actual |
+|---|---|---|---|
+| 0.7.1 | Knock down an HH carrying a pack, cape, or pickup | Item becomes loose and recoverable by a human | Pending PC test |
+| 0.7.1 | Walk onto the item while the HH is still stunned | Human can collect; HH cannot reclaim it | Pending PC test |
+| 0.7.1 | Another HH stands beside the dropped item | Leaves it alone during stun and the following 3.5 seconds | Pending PC test |
+| 0.7.1 | Leave the dropped item untouched after the HH recovers | Normal cargo pickup resumes after 3.5 seconds | Pending PC test |
+| 0.7.1 | Collect dropped cargo, then finish the level | No replacement or duplicate appears | Pending PC test |
+| 0.7.1 | Knockdown clears holding pointer but item remains attached | Attachment is removed and item becomes recoverable | Pending PC test |
+| 0.7.1 | Carry cargo through an exit without a knockdown | Existing transfer behavior remains intact | Pending PC test |
+
 ## Version 0.7 expanded cargo
 
 Automated checks pass for all 39 cargo types, including 48 transition scenarios and automatic collection for every type. These are Lua API simulations; the in-game results below remain pending.

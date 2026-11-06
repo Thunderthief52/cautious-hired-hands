@@ -2,7 +2,13 @@
 
 `Cautious Hired Hands` is a Playlunky/Overlunky Lua mod for Spelunky 2. It keeps the game's normal Hired Hand AI and adds a last-moment safety filter to its decisions.
 
-## What version 0.7 does
+## What version 0.7.1 fixes
+
+Knocking down a Hired Hand now releases its cargo so a human player can recover it. Stunned or dying companions cannot take new cargo through either normal pickup or automatic overlap. After a knockdown, the companion and all other Hired Hands leave the dropped item alone while it is stunned and for **3.5 seconds after recovery**. Ordinary deliberate drops get the same pickup grace.
+
+This also handles cases where the game clears the held-item pointer but leaves the cargo attached. Released cargo is removed from the companion's exit record, so collecting it does not create another copy next level. Normal weapons continue to use their vanilla knockdown/drop behavior.
+
+## Supported cargo in version 0.7
 
 Version 0.7 expands the cargo slot from 10 to **39 item types**, including all 33 `ITEM_PICKUP_*` types in the current API:
 
